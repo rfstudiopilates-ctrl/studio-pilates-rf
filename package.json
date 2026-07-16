@@ -3,17 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "description": "Sistema de gestión integral para estudios de Pilates",
-  "workspaces": [
-    "frontend",
-    "backend"
-  ],
   "scripts": {
-    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
-    "dev:backend": "npm run dev -w backend",
-    "dev:frontend": "npm run dev -w frontend",
-    "build": "npm run build -w frontend",
-    "start": "npm run start -w backend",
-    "lint": "npm run lint -w frontend && npm run lint -w backend"
+    "dev": "concurrently -n backend,frontend -c blue,magenta \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix backend",
+    "lint": "npm run lint --prefix frontend && npm run lint --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

@@ -2,8 +2,8 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// PORT lo inyecta Railway automáticamente; no lo exigimos a mano.
 const requiredEnvVars = [
-  'PORT',
   'CORS_ORIGIN',
   'DB_HOST',
   'DB_PORT',

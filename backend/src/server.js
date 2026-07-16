@@ -37,9 +37,9 @@ async function startServer() {
   runClassRemindersJob('startup').catch(() => {});
   runExpirePendingHoldsJob('startup').catch(() => {});
 
-  app.listen(env.port, () => {
-    console.log(`[API] Servidor corriendo en http://localhost:${env.port}`);
-    console.log(`[API] Health check: http://localhost:${env.port}/api/health`);
+  app.listen(env.port, '0.0.0.0', () => {
+    console.log(`[API] Servidor corriendo en http://0.0.0.0:${env.port}`);
+    console.log(`[API] Health check: http://0.0.0.0:${env.port}/api/health`);
     console.log(`[API] Entorno: ${env.nodeEnv}`);
     console.log(
       `[API] CORS: ${env.corsOrigins.join(', ')} | cookie sameSite=${env.authCookie.sameSite}`
