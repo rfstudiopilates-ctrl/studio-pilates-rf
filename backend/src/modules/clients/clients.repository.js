@@ -257,6 +257,43 @@ export async function deleteClient(id) {
   return result.affectedRows > 0;
 }
 
+/**
+ * ¿El cliente tiene actividad registrada (reservas, planes, pagos, etc.)?
+ * Si la tiene, no se puede borrar físicamente por las FK de la base.
+ */
+export async function clientHasActivity(id) {
+  const [rows] = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM class_reservations WHERE client_id = ?)
+     + (SELECT COUNT(*) FROM client_plans WHERE client_id = ?)
+     + (SELECT COUNT(*) FROM financial_movements WHERE client_id = ?)
+     + (SELECT COUNT(*) FROM recovery_credits WHERE client_id = ?)
+     + (SELECT COUNT(*) FROM recurring_reservations WHERE client_id = ?)
+     + (SELECT COUNT(*) FROM schedule_change_requests WHERE client_id = ?) AS total`,
+    [id, id, id, id, id, id]
+  );
+
+  return Number(rows[0].total) > 0;
+}
+
+/**
+ * Borrado físico definitivo. Solo para cuentas sin actividad:
+ * el historial se elimina por ON DELETE CASCADE.
+ */
+export async function hardDeleteClient(id) {
+  await pool.query(
+    "DELETE FROM refresh_tokens WHERE subject_type = 'client' AND subject_id = ?",
+    [id]
+  );
+  await pool.query(
+    "DELETE FROM push_subscriptions WHERE user_type = 'client' AND user_id = ?",
+    [id]
+  );
+
+  const [result] = await pool.query('DELETE FROM clients WHERE id = ?', [id]);
+  return result.affectedRows > 0;
+}
+
 export async function updateClientLastLogin(clientId) {
   await pool.query('UPDATE clients SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?', [clientId]);
 }

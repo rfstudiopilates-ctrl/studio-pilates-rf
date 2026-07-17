@@ -15,16 +15,16 @@ export default function AuthLayout({ title, subtitle, children, footer }) {
               {studioName}
             </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-text">
-              Gestión premium para tu estudio
+              Reservá tu turno de forma simple y segura
             </h1>
             <p className="mt-4 text-lg leading-8 text-text-muted">
-              Accedé de forma segura para administrar turnos, clientes, planes y la
-              experiencia completa de tu negocio.
+              Ingresá para ver tus próximas clases, reservar nuevos turnos y llevar el
+              control de tu plan, estés donde estés.
             </p>
             <div className="mt-8 grid gap-3 text-sm text-text-muted">
-              <div className="rounded-xl bg-white/70 px-4 py-3">Sesión protegida con JWT</div>
-              <div className="rounded-xl bg-white/70 px-4 py-3">Renovación automática de acceso</div>
-              <div className="rounded-xl bg-white/70 px-4 py-3">Branding configurable sin código</div>
+              <div className="rounded-xl bg-white/70 px-4 py-3">Reservá y cancelá tus clases online</div>
+              <div className="rounded-xl bg-white/70 px-4 py-3">Seguí tu plan y tus clases disponibles</div>
+              <div className="rounded-xl bg-white/70 px-4 py-3">Tu lugar queda confirmado al instante</div>
             </div>
           </div>
         </section>
@@ -43,7 +43,7 @@ export default function AuthLayout({ title, subtitle, children, footer }) {
           {footer ? <div className="mt-6 text-center text-sm text-text-muted">{footer}</div> : null}
 
           <p className="mt-8 text-center text-xs text-text-muted lg:text-left">
-            {studioName} · Acceso seguro
+            {studioName} · Tu espacio de bienestar
           </p>
         </section>
       </div>

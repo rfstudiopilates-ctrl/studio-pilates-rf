@@ -17,15 +17,42 @@ dotenv.config();
 
 const SALT_ROUNDS = 12;
 
+const PLACEHOLDER_PASSWORDS = [
+  'tu_clave_admin_fuerte',
+  'otra_clave_fuerte',
+  'nueva_clave',
+  'changeme',
+  'admin1234',
+  'cliente1234',
+];
+
 function parseArgs() {
   const args = process.argv.slice(2);
   const parsed = {};
 
-  for (let i = 0; i < args.length; i += 2) {
-    const key = args[i]?.replace(/^--/, '');
+  for (let i = 0; i < args.length; i += 1) {
+    const raw = args[i];
+    if (!raw?.startsWith('--')) {
+      continue;
+    }
+
+    const body = raw.slice(2);
+    const eqIndex = body.indexOf('=');
+
+    if (eqIndex >= 0) {
+      const key = body.slice(0, eqIndex);
+      const value = body.slice(eqIndex + 1);
+      if (key && value) {
+        parsed[key] = value;
+      }
+      continue;
+    }
+
+    const key = body;
     const value = args[i + 1];
-    if (key && value) {
+    if (key && value && !value.startsWith('--')) {
       parsed[key] = value;
+      i += 1;
     }
   }
 
@@ -43,7 +70,14 @@ function resolveConnectionConfig(args) {
       user: decodeURIComponent(parsed.username),
       password: decodeURIComponent(parsed.password),
       database: parsed.pathname.replace(/^\//, '') || 'railway',
+      source: 'url',
     };
+  }
+
+  if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_NAME) {
+    throw new Error(
+      'Falta --url "mysql://...". Para Railway copiá MYSQL_PUBLIC_URL del servicio MySQL.'
+    );
   }
 
   return {
@@ -52,6 +86,7 @@ function resolveConnectionConfig(args) {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD || '',
     database: process.env.DB_NAME,
+    source: 'env',
   };
 }
 
@@ -63,7 +98,7 @@ async function main() {
 
   if (!['admin', 'client'].includes(type) || !username || !password) {
     console.error(
-      'Uso: node scripts/set-password.js --type admin|client --username USUARIO --password "NUEVA_CLAVE" [--url "mysql://..."]'
+      'Uso: node scripts/set-password.js --type admin|client --username USUARIO --password "NUEVA_CLAVE" --url "mysql://..."'
     );
     process.exit(1);
   }
@@ -73,8 +108,25 @@ async function main() {
     process.exit(1);
   }
 
+  if (PLACEHOLDER_PASSWORDS.includes(password.toLowerCase())) {
+    console.error(
+      '[SET-PASSWORD] Esa parece una contraseña de ejemplo del DEPLOY.md. Elegí una clave real tuya.'
+    );
+    process.exit(1);
+  }
+
   const config = resolveConnectionConfig(args);
-  const connection = await mysql.createConnection(config);
+  console.log(
+    `[SET-PASSWORD] Conectando a ${config.host}:${config.port}/${config.database} (${config.source}) ...`
+  );
+
+  const connection = await mysql.createConnection({
+    host: config.host,
+    port: config.port,
+    user: config.user,
+    password: config.password,
+    database: config.database,
+  });
 
   try {
     const table = type === 'admin' ? 'users' : 'clients';
@@ -91,6 +143,7 @@ async function main() {
     }
 
     console.log(`[SET-PASSWORD] Contraseña actualizada para ${type} "${username}".`);
+    console.log('[SET-PASSWORD] Ahora Redeploy en Railway (o esperá el restart automático).');
   } finally {
     await connection.end();
   }

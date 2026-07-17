@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import AdminLayout from '../../../components/admin/AdminLayout';
 import ClientsListFilters from '../../../components/clients/ClientsListFilters';
 import ClientsTable from '../../../components/clients/ClientsTable';
@@ -20,6 +20,7 @@ import { useClientDetail, useClientsList } from '../../../hooks/useClients';
 
 export default function ClientsListPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState(DEFAULT_CLIENT_FILTERS);
   const [filtersExpanded, setFiltersExpanded] = useState(false);
@@ -43,6 +44,18 @@ export default function ClientsListPage() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const flashMessage = location.state?.flashMessage;
+    if (!flashMessage) return;
+
+    setSuccessMessage(flashMessage);
+    navigate(location.pathname, { replace: true, state: {} });
+
+    window.setTimeout(() => {
+      setSuccessMessage((current) => (current === flashMessage ? '' : current));
+    }, 8000);
+  }, [location.state, location.pathname, navigate]);
 
   const debouncedSearch = useDebouncedValue(filters.search, 350);
 

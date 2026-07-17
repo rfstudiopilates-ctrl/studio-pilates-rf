@@ -37,8 +37,8 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      title="Iniciar sesión"
-      subtitle="Ingresá tu usuario y contraseña para acceder al estudio."
+      title="¡Hola de nuevo!"
+      subtitle="Ingresá tus datos para reservar y gestionar tus clases."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error ? <Alert variant="error">{error}</Alert> : null}
@@ -48,7 +48,7 @@ export default function LoginPage() {
           name="username"
           type="text"
           autoComplete="username"
-          placeholder="admin"
+          placeholder="tu.usuario"
           value={form.username}
           onChange={(event) => setForm((prev) => ({ ...prev, username: event.target.value }))}
           required

@@ -12,6 +12,7 @@ import { Select } from '../../components/ui/Select';
 import { Textarea } from '../../components/ui/Textarea';
 import { Toggle } from '../../components/ui/Toggle';
 import PushNotificationBanner from '../../components/notifications/PushNotificationBanner';
+import ChangePasswordForm from '../../components/auth/ChangePasswordForm';
 import {
   DEFAULT_WHATSAPP_MESSAGES,
   NOTIFICATION_FIELDS,
@@ -104,6 +105,10 @@ export default function SettingsPage() {
   const subtitle = useMemo(() => {
     if (activeTab === 'planes') {
       return 'Creá y administrá los planes de membresía del estudio.';
+    }
+
+    if (activeTab === 'seguridad') {
+      return 'Cambiá tu contraseña de acceso al panel de administración.';
     }
 
     return 'Personalizá tu estudio sin modificar código: branding, reglas y mensajes.';
@@ -208,6 +213,22 @@ export default function SettingsPage() {
       <AdminLayout title="Configuración" subtitle={subtitle}>
         {tabsNav}
         <PlansPanel />
+      </AdminLayout>
+    );
+  }
+
+  if (activeTab === 'seguridad') {
+    return (
+      <AdminLayout title="Configuración" subtitle={subtitle}>
+        {tabsNav}
+        <SectionCard
+          title="Cambiar contraseña"
+          description="Actualizá la contraseña con la que ingresás al panel. Por seguridad, después del cambio vas a tener que iniciar sesión de nuevo."
+        >
+          <div className="max-w-md">
+            <ChangePasswordForm />
+          </div>
+        </SectionCard>
       </AdminLayout>
     );
   }

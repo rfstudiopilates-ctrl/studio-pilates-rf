@@ -11,6 +11,7 @@ import ClientProfileHeader, { ClientBackLink } from '../../../components/clients
 import SendCredentialsWhatsAppModal from '../../../components/clients/SendCredentialsWhatsAppModal';
 import { Alert } from '../../../components/ui/Alert';
 import { Button } from '../../../components/ui/Button';
+import ConfirmModal from '../../../components/ui/ConfirmModal';
 import { useClientDetail, useDeleteClient } from '../../../hooks/useClients';
 import { getErrorMessage } from '../../../lib/formErrors';
 
@@ -33,6 +34,7 @@ export default function ClientDetailPage() {
   const [historyPage, setHistoryPage] = useState(1);
   const [feedback, setFeedback] = useState({ error: '', message: '' });
   const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
   const { data, isLoading, isError } = useClientDetail(id, { page: historyPage, limit: 10 });
   const deleteClient = useDeleteClient();
@@ -86,20 +88,17 @@ export default function ClientDetailPage() {
     });
   };
 
-  const handleDelete = async () => {
-    const confirmed = window.confirm(
-      `¿Eliminar a ${client.fullName}? La cuenta quedará desactivada y no podrá iniciar sesión.`
-    );
-
-    if (!confirmed) return;
-
+  const handleConfirmDelete = async () => {
     setFeedback({ error: '', message: '' });
 
     try {
       const result = await deleteClient.mutateAsync(id);
-      setFeedback({ message: result.message, error: '' });
-      navigate('/admin/clientes', { replace: true });
+      navigate('/admin/clientes', {
+        replace: true,
+        state: { flashMessage: result.message },
+      });
     } catch (error) {
+      setDeleteModalOpen(false);
       setFeedback({ error: getErrorMessage(error, 'No se pudo eliminar el cliente.'), message: '' });
     }
   };
@@ -127,7 +126,7 @@ export default function ClientDetailPage() {
       <Button variant="secondary" onClick={() => setCredentialsModalOpen(true)}>
         Reenviar acceso
       </Button>
-      <Button variant="secondary" onClick={handleDelete} isLoading={deleteClient.isPending}>
+      <Button variant="secondary" onClick={() => setDeleteModalOpen(true)}>
         Eliminar
       </Button>
     </>
@@ -229,6 +228,17 @@ export default function ClientDetailPage() {
         onClose={() => setCredentialsModalOpen(false)}
         client={client}
         mode="resend"
+      />
+
+      <ConfirmModal
+        open={deleteModalOpen}
+        onClose={() => setDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+        title={`Eliminar a ${client.fullName}`}
+        message="Si la cuenta no tiene actividad registrada, se elimina definitivamente de la base de datos. Si ya tiene reservas, planes o pagos, se desactiva: el cliente no podrá iniciar sesión ni aparecerá en el listado."
+        confirmLabel="Sí, eliminar"
+        cancelLabel="Cancelar"
+        isLoading={deleteClient.isPending}
       />
     </AdminLayout>
   );

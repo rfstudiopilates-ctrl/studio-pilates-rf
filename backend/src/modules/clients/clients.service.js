@@ -199,16 +199,31 @@ export async function deleteClient(id, adminId) {
     throw createAppError('Cliente no encontrado', 404);
   }
 
+  const hasActivity = await clientsRepository.clientHasActivity(id);
+
+  await authRepository.revokeAllRefreshTokens('client', id);
+
+  if (!hasActivity) {
+    await clientsRepository.hardDeleteClient(id);
+
+    return {
+      message: `La cuenta de "${client.fullName}" se eliminó definitivamente porque no tenía actividad registrada.`,
+      result: 'deleted',
+    };
+  }
+
   await clientsRepository.createClientHistory({
     clientId: id,
     actionType: 'client_deleted',
-    description: `Cliente "${client.fullName}" eliminado del sistema.`,
+    description: `Cuenta de "${client.fullName}" desactivada (tenía actividad registrada).`,
     metadata: { username: client.username },
     performedById: adminId,
   });
 
-  await authRepository.revokeAllRefreshTokens('client', id);
   await clientsRepository.deleteClient(id);
 
-  return { message: 'Cliente eliminado correctamente' };
+  return {
+    message: `"${client.fullName}" tenía reservas, planes o pagos registrados, así que la cuenta se desactivó: el cliente ya no podrá iniciar sesión y no aparecerá en el listado.`,
+    result: 'deactivated',
+  };
 }
