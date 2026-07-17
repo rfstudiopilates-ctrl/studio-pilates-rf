@@ -35,4 +35,14 @@ export const notificationsApi = {
     const { data } = await api.post('/notifications/inbox/read-all');
     return data.data;
   },
+
+  getPushStatus: async () => {
+    const { data } = await api.get('/notifications/push/status');
+    return data.data;
+  },
+
+  sendTestPush: async () => {
+    const { data } = await api.post('/notifications/push/test');
+    return data.data;
+  },
 };

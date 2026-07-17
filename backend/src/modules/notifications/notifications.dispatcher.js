@@ -78,6 +78,16 @@ async function dispatchToRecipient({
 
   if (!pushService.isPushEnabled()) {
     console.warn('[NOTIFY] Push no configurado (faltan claves VAPID).');
+    await notificationsRepository.createNotificationLog({
+      channel: 'push',
+      recipientType,
+      recipientId,
+      eventType,
+      title,
+      body,
+      payload,
+      status: 'failed',
+    });
     return;
   }
 
@@ -88,9 +98,24 @@ async function dispatchToRecipient({
     eventType,
   });
 
+  await notificationsRepository.createNotificationLog({
+    channel: 'push',
+    recipientType,
+    recipientId,
+    eventType,
+    title,
+    body: pushResult.sent > 0
+      ? body
+      : `${body}${pushResult.errors?.length ? ` [${pushResult.errors.join('; ')}]` : ' [sin dispositivos]'}`,
+    payload,
+    status: pushResult.sent > 0 ? 'sent' : 'failed',
+    sentAt: pushResult.sent > 0 ? new Date() : null,
+  });
+
   if (pushResult.sent === 0) {
     console.warn(
-      `[NOTIFY] Push sin dispositivos para ${recipientType}#${recipientId} (${eventType}).`
+      `[NOTIFY] Push falló para ${recipientType}#${recipientId} (${eventType}):`,
+      pushResult.errors?.join('; ') || 'sin dispositivos'
     );
   }
 }
@@ -242,4 +267,72 @@ export function runNotificationSafely(promise) {
   promise.catch((error) => {
     console.error('[NOTIFY] Error al enviar notificación:', error.message);
   });
+}
+
+/** Envía una notificación de prueba al usuario autenticado (in-app + push), sin gate de settings. */
+export async function notifyTestPush({ recipientType, recipientId }) {
+  const title = 'Prueba de notificación';
+  const body =
+    'Si ves esto en el celular con la pantalla bloqueada, el push está funcionando.';
+  const payload = {
+    url:
+      recipientType === 'admin'
+        ? `${env.appUrl}/admin`
+        : `${env.appUrl}/cliente`,
+  };
+
+  await notificationsRepository.createNotificationLog({
+    channel: 'in_app',
+    recipientType,
+    recipientId: Number(recipientId),
+    eventType: 'testPush',
+    title,
+    body,
+    payload,
+    status: 'sent',
+    sentAt: new Date(),
+  });
+
+  if (!pushService.isPushEnabled()) {
+    throw new Error('Push no configurado en el servidor (faltan claves VAPID)');
+  }
+
+  const pushResult = await pushService.sendPushToUser(recipientType, Number(recipientId), {
+    title,
+    body,
+    url: payload.url,
+    eventType: 'testPush',
+  });
+
+  await notificationsRepository.createNotificationLog({
+    channel: 'push',
+    recipientType,
+    recipientId: Number(recipientId),
+    eventType: 'testPush',
+    title,
+    body:
+      pushResult.sent > 0
+        ? body
+        : `${body}${
+            pushResult.errors?.length
+              ? ` [${pushResult.errors.join('; ')}]`
+              : ' [sin dispositivos suscritos]'
+          }`,
+    payload,
+    status: pushResult.sent > 0 ? 'sent' : 'failed',
+    sentAt: pushResult.sent > 0 ? new Date() : null,
+  });
+
+  if (pushResult.sent === 0) {
+    throw new Error(
+      pushResult.errors?.includes('no_subscriptions')
+        ? 'Este dispositivo no está suscrito al push. Activá las notificaciones en esta app instalada y probá de nuevo.'
+        : `No se pudo enviar el push: ${pushResult.errors?.join('; ') || 'error desconocido'}`
+    );
+  }
+
+  return {
+    message: 'Notificación de prueba enviada. Bloqueá el teléfono y deberías verla.',
+    sent: pushResult.sent,
+  };
 }

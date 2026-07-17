@@ -58,4 +58,18 @@ router.post(
   notificationsController.markAsRead
 );
 
+router.get(
+  '/push/status',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.getPushStatus
+);
+
+router.post(
+  '/push/test',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.sendTestPush
+);
+
 export default router;

@@ -18,6 +18,27 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
+function getDeviceLabel() {
+  return navigator.userAgent.slice(0, 150);
+}
+
+async function persistSubscription(subscription) {
+  const json = subscription.toJSON();
+
+  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+    throw new Error('Suscripción push incompleta');
+  }
+
+  await notificationsApi.subscribePush({
+    endpoint: json.endpoint,
+    keys: {
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    },
+    deviceLabel: getDeviceLabel(),
+  });
+}
+
 export { isPushSupported };
 
 export function getNotificationPermission() {
@@ -43,6 +64,52 @@ export async function hasActivePushSubscription() {
   return Boolean(subscription);
 }
 
+/**
+ * Si el permiso ya está concedido, asegura suscripción local + registro en el backend.
+ * No pide permiso (no es intrusivo). Ideal al abrir la PWA en iOS.
+ */
+export async function syncPushSubscriptionIfGranted() {
+  if (!isPushSupported()) {
+    return { ok: false, reason: 'unsupported' };
+  }
+
+  if (Notification.permission !== 'granted') {
+    return { ok: false, reason: 'permission_not_granted' };
+  }
+
+  const { publicKey, enabled } = await notificationsApi.getVapidPublicKey();
+
+  if (!enabled || !publicKey) {
+    return { ok: false, reason: 'vapid_not_configured' };
+  }
+
+  let registration = await getServiceWorkerRegistration();
+
+  if (!registration) {
+    registration = await registerServiceWorker();
+  }
+
+  if (!registration) {
+    return { ok: false, reason: 'no_service_worker' };
+  }
+
+  // Esperar a que el SW esté activo (crítico en iOS tras updates).
+  await navigator.serviceWorker.ready;
+
+  let subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+  }
+
+  await persistSubscription(subscription);
+
+  return { ok: true, subscription };
+}
+
 export async function subscribeToPushNotifications() {
   if (!isPushSupported()) {
     throw new Error('Las notificaciones push no están soportadas en este navegador');
@@ -54,43 +121,19 @@ export async function subscribeToPushNotifications() {
     throw new Error('Permiso de notificaciones denegado');
   }
 
-  const { publicKey, enabled } = await notificationsApi.getVapidPublicKey();
+  const result = await syncPushSubscriptionIfGranted();
 
-  if (!enabled || !publicKey) {
-    throw new Error('Las notificaciones push no están configuradas en el servidor');
+  if (!result.ok) {
+    if (result.reason === 'vapid_not_configured') {
+      throw new Error('Las notificaciones push no están configuradas en el servidor');
+    }
+    if (result.reason === 'no_service_worker') {
+      throw new Error('No se pudo registrar el service worker');
+    }
+    throw new Error('No se pudo activar la suscripción push');
   }
 
-  let registration = await getServiceWorkerRegistration();
-
-  if (!registration) {
-    registration = await registerServiceWorker();
-  }
-
-  if (!registration) {
-    throw new Error('No se pudo registrar el service worker');
-  }
-
-  let subscription = await registration.pushManager.getSubscription();
-
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    });
-  }
-
-  const json = subscription.toJSON();
-
-  await notificationsApi.subscribePush({
-    endpoint: json.endpoint,
-    keys: {
-      p256dh: json.keys.p256dh,
-      auth: json.keys.auth,
-    },
-    deviceLabel: navigator.userAgent.slice(0, 150),
-  });
-
-  return subscription;
+  return result.subscription;
 }
 
 export async function unsubscribeFromPushNotifications() {

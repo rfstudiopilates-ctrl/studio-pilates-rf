@@ -1,5 +1,6 @@
 import * as notificationsRepository from './notifications.repository.js';
 import * as pushService from './push.service.js';
+import { notifyTestPush } from './notifications.dispatcher.js';
 import { createAppError } from '../../utils/AppError.js';
 
 export function getVapidPublicKey() {
@@ -71,4 +72,32 @@ export async function markAllAsRead(userType, userId) {
     recipientType: userType,
     recipientId: Number(userId),
   });
+}
+
+export async function sendTestPush(userType, userId) {
+  try {
+    return await notifyTestPush({
+      recipientType: userType,
+      recipientId: userId,
+    });
+  } catch (error) {
+    throw createAppError(error.message || 'No se pudo enviar la prueba', 400);
+  }
+}
+
+export async function getPushStatus(userType, userId) {
+  const subscriptions = await notificationsRepository.listActivePushSubscriptions(
+    userType,
+    Number(userId)
+  );
+
+  return {
+    enabled: pushService.isPushEnabled(),
+    deviceCount: subscriptions.length,
+    devices: subscriptions.map((item) => ({
+      id: item.id,
+      deviceLabel: item.deviceLabel,
+      updatedAt: item.updatedAt,
+    })),
+  };
 }

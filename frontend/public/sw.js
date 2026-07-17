@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const STATIC_CACHE = `sprf-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `sprf-runtime-${CACHE_VERSION}`;
 
@@ -15,6 +15,14 @@ const PRECACHE_URLS = [
 
 function isStaticAsset(pathname) {
   return /\.(js|css|png|jpg|jpeg|svg|webp|woff2?|webmanifest)$/i.test(pathname);
+}
+
+function absoluteAsset(path) {
+  try {
+    return new URL(path, self.location.origin).href;
+  } catch {
+    return path;
+  }
 }
 
 async function networkFirstNavigation(request) {
@@ -105,6 +113,7 @@ self.addEventListener('push', (event) => {
     title: 'Studio Pilates RF',
     body: 'Tenés una nueva notificación',
     url: '/',
+    eventType: 'general',
   };
 
   if (event.data) {
@@ -115,20 +124,38 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      data: { url: data.url || '/' },
-    })
-  );
+  const title = data.title || 'Studio Pilates RF';
+  const options = {
+    body: data.body || 'Tenés una nueva notificación',
+    icon: absoluteAsset('/icons/icon-192.png'),
+    badge: absoluteAsset('/icons/icon-192.png'),
+    data: {
+      url: data.url || '/',
+      eventType: data.eventType || 'general',
+    },
+    tag: data.eventType ? `sprf-${data.eventType}` : 'sprf-notification',
+    renotify: true,
+    requireInteraction: false,
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const targetUrl = event.notification.data?.url || '/';
+  let targetUrl = event.notification.data?.url || '/';
+
+  try {
+    if (/^https?:\/\//i.test(targetUrl)) {
+      const parsed = new URL(targetUrl);
+      if (parsed.origin === self.location.origin) {
+        targetUrl = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      }
+    }
+  } catch {
+    targetUrl = '/';
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {

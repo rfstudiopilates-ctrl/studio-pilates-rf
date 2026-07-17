@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import NavIcon from '../ui/NavIcon';
 import {
@@ -63,11 +64,14 @@ function formatRelativeTime(value) {
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef(null);
   const panelRef = useRef(null);
   const navigate = useNavigate();
 
   const { data: unreadData } = useUnreadNotificationsCount();
-  const { data: inboxData, isLoading } = useNotificationsInbox({ enabled: open });
+  const { data: inboxData, isLoading, isFetching } = useNotificationsInbox({
+    enabled: open,
+  });
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
 
@@ -80,9 +84,14 @@ export default function NotificationBell() {
     }
 
     const handlePointerDown = (event) => {
-      if (panelRef.current && !panelRef.current.contains(event.target)) {
-        setOpen(false);
+      const target = event.target;
+      if (
+        panelRef.current?.contains(target) ||
+        buttonRef.current?.contains(target)
+      ) {
+        return;
       }
+      setOpen(false);
     };
 
     const handleEscape = (event) => {
@@ -92,10 +101,12 @@ export default function NotificationBell() {
     };
 
     document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
     document.addEventListener('keydown', handleEscape);
 
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
       document.removeEventListener('keydown', handleEscape);
     };
   }, [open]);
@@ -116,9 +127,85 @@ export default function NotificationBell() {
     }
   };
 
+  const panel = open
+    ? createPortal(
+        <div
+          ref={panelRef}
+          className="fixed inset-x-3 top-[4.25rem] z-[80] mx-auto w-auto max-w-md overflow-hidden rounded-2xl border border-border bg-white shadow-[0_18px_50px_rgba(26,26,26,0.18)] sm:inset-x-auto sm:right-4 sm:left-auto sm:mx-0 sm:w-[22rem]"
+          role="dialog"
+          aria-label="Notificaciones"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text">Notificaciones</p>
+              <p className="text-xs text-text-muted">
+                {unreadCount > 0 ? `${unreadCount} sin leer` : 'Estás al día'}
+              </p>
+            </div>
+            {unreadCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => markAllRead.mutate()}
+                disabled={markAllRead.isPending}
+                className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-text hover:bg-surface-muted disabled:opacity-60"
+              >
+                Marcar leídas
+              </button>
+            ) : null}
+          </div>
+
+          <div className="max-h-[min(24rem,60vh)] overflow-y-auto overscroll-contain">
+            {isLoading || (isFetching && items.length === 0) ? (
+              <p className="px-4 py-8 text-center text-sm text-text-muted">
+                Cargando…
+              </p>
+            ) : null}
+
+            {!isLoading && !isFetching && items.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-text-muted">
+                No tenés notificaciones todavía.
+              </p>
+            ) : null}
+
+            {items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleOpenItem(item)}
+                className={`flex w-full flex-col gap-1 border-b border-border px-4 py-3 text-left transition last:border-b-0 hover:bg-surface-muted ${
+                  item.isRead ? 'bg-white' : 'bg-brand-50'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p
+                    className={`min-w-0 flex-1 break-words text-sm leading-snug ${
+                      item.isRead ? 'font-medium text-text' : 'font-semibold text-text'
+                    }`}
+                  >
+                    {item.title}
+                  </p>
+                  {!item.isRead ? (
+                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-300" />
+                  ) : null}
+                </div>
+                <p className="break-words text-xs leading-relaxed text-text-muted">
+                  {item.body}
+                </p>
+                <p className="text-[11px] text-text-muted/80">
+                  {formatRelativeTime(item.createdAt)}
+                </p>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
-    <div className="relative" ref={panelRef}>
+    <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         className="relative rounded-xl border border-border p-2 text-text-muted transition hover:bg-surface-muted hover:text-text"
@@ -136,75 +223,7 @@ export default function NotificationBell() {
           </span>
         ) : null}
       </button>
-
-      {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-border bg-white shadow-xl">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-text">Notificaciones</p>
-              <p className="text-xs text-text-muted">
-                {unreadCount > 0
-                  ? `${unreadCount} sin leer`
-                  : 'Estás al día'}
-              </p>
-            </div>
-            {unreadCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => markAllRead.mutate()}
-                disabled={markAllRead.isPending}
-                className="text-xs font-medium text-text hover:underline disabled:opacity-60"
-              >
-                Marcar leídas
-              </button>
-            ) : null}
-          </div>
-
-          <div className="max-h-[min(24rem,60vh)] overflow-y-auto">
-            {isLoading ? (
-              <p className="px-4 py-8 text-center text-sm text-text-muted">
-                Cargando…
-              </p>
-            ) : null}
-
-            {!isLoading && items.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-text-muted">
-                No tenés notificaciones todavía.
-              </p>
-            ) : null}
-
-            {items.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleOpenItem(item)}
-                className={`flex w-full flex-col gap-1 border-b border-border px-4 py-3 text-left transition last:border-b-0 hover:bg-surface-muted ${
-                  item.isRead ? 'bg-white' : 'bg-brand-50'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <p
-                    className={`text-sm ${
-                      item.isRead
-                        ? 'font-medium text-text'
-                        : 'font-semibold text-text'
-                    }`}
-                  >
-                    {item.title}
-                  </p>
-                  {!item.isRead ? (
-                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-300" />
-                  ) : null}
-                </div>
-                <p className="line-clamp-2 text-xs text-text-muted">{item.body}</p>
-                <p className="text-[11px] text-text-muted/80">
-                  {formatRelativeTime(item.createdAt)}
-                </p>
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      {panel}
+    </>
   );
 }

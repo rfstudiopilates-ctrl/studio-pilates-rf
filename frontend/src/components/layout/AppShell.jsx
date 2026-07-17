@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { usePublicSettings } from '../../hooks/useSettings';
 import { useSidebar } from '../../hooks/useSidebar';
+import { useSyncPushSubscription } from '../../hooks/useNotifications';
 import AppSidebar from './AppSidebar';
 import NavIcon from '../ui/NavIcon';
 import { Button } from '../ui/Button';
@@ -21,6 +22,9 @@ export default function AppShell({
   const location = useLocation();
   const { collapsed, mobileOpen, toggleCollapsed, openMobile, closeMobile } =
     useSidebar(storageKey);
+
+  // Re-vincula push en este contexto (PWA iOS) cada vez que hay sesión.
+  useSyncPushSubscription();
 
   useEffect(() => {
     closeMobile();

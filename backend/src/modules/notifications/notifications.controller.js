@@ -73,3 +73,21 @@ export async function markAllAsRead(req, res, next) {
     next(error);
   }
 }
+
+export async function sendTestPush(req, res, next) {
+  try {
+    const data = await notificationsService.sendTestPush(req.auth.role, req.auth.sub);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getPushStatus(req, res, next) {
+  try {
+    const data = await notificationsService.getPushStatus(req.auth.role, req.auth.sub);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}

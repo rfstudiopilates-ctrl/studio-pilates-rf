@@ -40,16 +40,30 @@ export async function sendPushNotification(subscription, payload) {
           auth: subscription.authKey,
         },
       },
-      JSON.stringify(payload)
+      JSON.stringify(payload),
+      {
+        TTL: 60 * 60 * 24,
+        urgency: 'high',
+      }
     );
 
     return { ok: true };
   } catch (error) {
-    if (error.statusCode === 404 || error.statusCode === 410) {
+    const statusCode = error.statusCode || error.status || null;
+
+    if (statusCode === 404 || statusCode === 410) {
       await notificationsRepository.markPushSubscriptionInactive(subscription.id);
     }
 
-    return { ok: false, reason: error.message };
+    const reason = statusCode
+      ? `HTTP ${statusCode}: ${error.message || 'push_failed'}`
+      : error.message || 'push_failed';
+
+    console.error(
+      `[PUSH] Falló envío a sub#${subscription.id} (${subscription.userType}#${subscription.userId}): ${reason}`
+    );
+
+    return { ok: false, reason, statusCode };
   }
 }
 
@@ -60,11 +74,15 @@ export async function sendPushToUser(userType, userId, payload) {
   );
 
   if (subscriptions.length === 0) {
-    return { sent: 0, failed: 0 };
+    console.warn(
+      `[PUSH] Sin suscripciones activas para ${userType}#${userId} (${payload?.eventType || 'event'})`
+    );
+    return { sent: 0, failed: 0, errors: ['no_subscriptions'] };
   }
 
   let sent = 0;
   let failed = 0;
+  const errors = [];
 
   for (const subscription of subscriptions) {
     const result = await sendPushNotification(subscription, payload);
@@ -72,8 +90,11 @@ export async function sendPushToUser(userType, userId, payload) {
       sent += 1;
     } else {
       failed += 1;
+      if (result.reason) {
+        errors.push(result.reason);
+      }
     }
   }
 
-  return { sent, failed };
+  return { sent, failed, errors };
 }
