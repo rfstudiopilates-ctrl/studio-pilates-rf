@@ -13,6 +13,10 @@ import * as clientsRepository from '../clients/clients.repository.js';
 import * as financesRepository from '../finances/finances.repository.js';
 import * as financesService from '../finances/finances.service.js';
 import * as reservationsService from '../reservations/reservations.service.js';
+import {
+  notifyPlanCancelled,
+  runNotificationSafely,
+} from '../notifications/notifications.dispatcher.js';
 
 export async function listPlans(query) {
   return plansRepository.listPlans(query);
@@ -302,6 +306,13 @@ export async function cancelClientPlan(clientPlanId, adminId, payload = {}) {
     },
     performedById: adminId,
   });
+
+  runNotificationSafely(
+    notifyPlanCancelled({
+      clientId: clientPlan.clientId,
+      planName: clientPlan.planName,
+    })
+  );
 
   return {
     message: withRefund

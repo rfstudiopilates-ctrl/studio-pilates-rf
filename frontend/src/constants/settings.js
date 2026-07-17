@@ -66,6 +66,7 @@ export const NOTIFICATION_FIELDS = {
     { key: 'cancellation', label: 'Cancelación' },
     { key: 'scheduleChangeApproved', label: 'Cambio de horario aprobado' },
     { key: 'expirationNotice', label: 'Aviso de vencimiento' },
+    { key: 'planCancelled', label: 'Plan cancelado' },
   ],
 };
 

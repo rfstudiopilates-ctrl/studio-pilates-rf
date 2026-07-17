@@ -82,7 +82,8 @@ VALUES (
       'reminder24h', true,
       'cancellation', true,
       'scheduleChangeApproved', true,
-      'expirationNotice', true
+      'expirationNotice', true,
+      'planCancelled', true
     )
   )
 )

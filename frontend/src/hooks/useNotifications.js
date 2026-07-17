@@ -22,7 +22,8 @@ export function useNotificationsInbox(options = {}) {
     queryKey: [...NOTIFICATIONS_KEY, 'inbox'],
     queryFn: () => notificationsApi.getInbox({ limit: 30 }),
     enabled,
-    refetchInterval: enabled ? 30_000 : false,
+    // La lista se actualiza al abrir y tras acciones; no necesita consultar en bucle.
+    refetchInterval: false,
     staleTime: 10_000,
   });
 }
@@ -35,8 +36,8 @@ export function useUnreadNotificationsCount(options = {}) {
     queryKey: [...NOTIFICATIONS_KEY, 'unread-count'],
     queryFn: notificationsApi.getUnreadCount,
     enabled,
-    refetchInterval: enabled ? 30_000 : false,
-    staleTime: 10_000,
+    refetchInterval: enabled ? 60_000 : false,
+    staleTime: 30_000,
   });
 }
 

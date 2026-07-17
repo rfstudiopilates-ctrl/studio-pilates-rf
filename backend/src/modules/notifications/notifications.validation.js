@@ -21,6 +21,7 @@ const eventTypeEnum = z.enum([
   'reservationApproved',
   'reminder24h',
   'scheduleChangeApproved',
+  'planCancelled',
 ]);
 
 export const listNotificationsQuerySchema = z.object({

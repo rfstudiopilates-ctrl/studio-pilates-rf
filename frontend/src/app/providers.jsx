@@ -10,6 +10,19 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       refetchOnWindowFocus: false,
+      retry(failureCount, error) {
+        // No repetir errores del cliente ni límites 429: solo aumenta el tráfico.
+        if (error?.status && error.status >= 400 && error.status < 500) {
+          return false;
+        }
+
+        // Reintento breve solo para red o fallos transitorios del servidor.
+        return failureCount < 2;
+      },
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
+    },
+    mutations: {
+      retry: false,
     },
   },
 });

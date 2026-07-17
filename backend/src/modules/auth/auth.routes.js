@@ -14,32 +14,61 @@ import { authenticate } from '../../middleware/authenticate.js';
 
 const router = Router();
 
-const authRateLimiter = rateLimit({
+const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
+  max: 15,
+  standardHeaders: 'draft-7',
   legacyHeaders: false,
+  // Los accesos correctos no deben consumir el cupo de seguridad.
+  skipSuccessfulRequests: true,
   message: {
     success: false,
-    error: { message: 'Demasiados intentos. Intentá nuevamente más tarde.' },
+    error: {
+      message: 'Demasiados intentos de acceso fallidos. Esperá unos minutos e intentá nuevamente.',
+    },
   },
 });
 
-router.post('/login', authRateLimiter, validateBody(loginSchema), authController.login);
-router.post('/admin/login', authRateLimiter, validateBody(adminLoginSchema), authController.adminLogin);
-router.post('/client/login', authRateLimiter, validateBody(clientLoginSchema), authController.clientLogin);
-router.post('/refresh', authRateLimiter, authController.refresh);
+const passwordRecoveryRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 8,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      message: 'Demasiadas solicitudes de recuperación. Esperá unos minutos.',
+    },
+  },
+});
+
+router.post('/login', loginRateLimiter, validateBody(loginSchema), authController.login);
+router.post(
+  '/admin/login',
+  loginRateLimiter,
+  validateBody(adminLoginSchema),
+  authController.adminLogin
+);
+router.post(
+  '/client/login',
+  loginRateLimiter,
+  validateBody(clientLoginSchema),
+  authController.clientLogin
+);
+// El refresh es automático y puede ocurrir simultáneamente en muchos dispositivos.
+// Queda protegido por el límite general de la API, no por el de contraseñas.
+router.post('/refresh', authController.refresh);
 router.post('/logout', authController.logout);
 router.get('/me', authenticate, authController.me);
 router.post(
   '/forgot-password',
-  authRateLimiter,
+  passwordRecoveryRateLimiter,
   validateBody(forgotPasswordSchema),
   authController.forgotPassword
 );
 router.post(
   '/reset-password',
-  authRateLimiter,
+  passwordRecoveryRateLimiter,
   validateBody(resetPasswordSchema),
   authController.resetPassword
 );

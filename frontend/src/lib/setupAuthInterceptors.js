@@ -23,17 +23,23 @@ function toApiError(error) {
   }
 
   if (error?.code === 'ECONNABORTED') {
-    return new ApiError('La solicitud tardó demasiado. Intentá de nuevo.');
+    return new ApiError('La solicitud tardó demasiado. Intentá de nuevo.', null, 408);
   }
 
   const apiError = error?.response?.data?.error;
+  const status = error?.response?.status || null;
+  const retryAfterHeader = error?.response?.headers?.['retry-after'];
+  const retryAfter = retryAfterHeader ? Number(retryAfterHeader) || null : null;
+
   if (apiError?.message) {
-    return new ApiError(apiError.message, apiError.fields || null);
+    return new ApiError(apiError.message, apiError.fields || null, status, retryAfter);
   }
 
   if (!error?.response || error.message === 'Network Error') {
     return new ApiError(
-      'No hay conexión con el servidor. Revisá tu internet e intentá de nuevo.'
+      'No hay conexión con el servidor. Revisá tu internet e intentá de nuevo.',
+      null,
+      null
     );
   }
 
@@ -42,10 +48,10 @@ function toApiError(error) {
     error.message.trim() &&
     !error.message.startsWith('Request failed with status')
   ) {
-    return new ApiError(error.message);
+    return new ApiError(error.message, null, status, retryAfter);
   }
 
-  return new ApiError('Ocurrió un error inesperado');
+  return new ApiError('Ocurrió un error inesperado', null, status, retryAfter);
 }
 
 export function setupAuthInterceptors() {

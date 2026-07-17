@@ -6,6 +6,7 @@ export const NOTIFICATION_EVENTS = {
   RESERVATION_APPROVED: 'reservationApproved',
   REMINDER_24H: 'reminder24h',
   SCHEDULE_CHANGE_APPROVED: 'scheduleChangeApproved',
+  PLAN_CANCELLED: 'planCancelled',
 };
 
 export const ADMIN_EVENT_MAP = {
@@ -20,4 +21,5 @@ export const CLIENT_EVENT_MAP = {
   [NOTIFICATION_EVENTS.REMINDER_24H]: 'reminder24h',
   [NOTIFICATION_EVENTS.CANCELLATION]: 'cancellation',
   [NOTIFICATION_EVENTS.SCHEDULE_CHANGE_APPROVED]: 'scheduleChangeApproved',
+  [NOTIFICATION_EVENTS.PLAN_CANCELLED]: 'planCancelled',
 };

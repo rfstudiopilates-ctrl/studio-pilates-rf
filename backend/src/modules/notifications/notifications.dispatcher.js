@@ -258,6 +258,15 @@ export async function notifyScheduleChangeApproved({ request, clientId }) {
   });
 }
 
+export async function notifyPlanCancelled({ clientId, planName }) {
+  await dispatchToClient(clientId, {
+    eventType: NOTIFICATION_EVENTS.PLAN_CANCELLED,
+    title: 'Plan cancelado',
+    body: `Tu plan "${planName}" fue cancelado. Revisá el estado de tu cuenta para ver los cambios.`,
+    payload: { url: `${env.appUrl}/cliente/cuenta` },
+  });
+}
+
 export async function notifyReminder24h(reservation) {
   await dispatchToClient(reservation.clientId, {
     eventType: NOTIFICATION_EVENTS.REMINDER_24H,
