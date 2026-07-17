@@ -31,6 +31,14 @@ function formatClassDate(dateString) {
   }).format(date);
 }
 
+function formatWhen(reservation) {
+  if (!reservation?.classDate || !reservation?.startTime) {
+    return '';
+  }
+
+  return ` del ${formatClassDate(reservation.classDate)} a las ${reservation.startTime}`;
+}
+
 async function dispatchToRecipient({
   recipientType,
   recipientId,
@@ -55,17 +63,20 @@ async function dispatchToRecipient({
     return;
   }
 
+  // Siempre queda en la campanita de la app (aunque el push falle o no haya dispositivo).
+  await notificationsRepository.createNotificationLog({
+    channel: 'in_app',
+    recipientType,
+    recipientId,
+    eventType,
+    title,
+    body,
+    payload,
+    status: 'sent',
+    sentAt: new Date(),
+  });
+
   if (!pushService.isPushEnabled()) {
-    await notificationsRepository.createNotificationLog({
-      channel: 'push',
-      recipientType,
-      recipientId,
-      eventType,
-      title,
-      body,
-      payload,
-      status: 'failed',
-    });
     console.warn('[NOTIFY] Push no configurado (faltan claves VAPID).');
     return;
   }
@@ -75,18 +86,6 @@ async function dispatchToRecipient({
     body,
     url: payload?.url || env.appUrl,
     eventType,
-  });
-
-  await notificationsRepository.createNotificationLog({
-    channel: 'push',
-    recipientType,
-    recipientId,
-    eventType,
-    title,
-    body,
-    payload,
-    status: pushResult.sent > 0 ? 'sent' : 'failed',
-    sentAt: pushResult.sent > 0 ? new Date() : null,
   });
 
   if (pushResult.sent === 0) {
@@ -128,18 +127,17 @@ async function dispatchToClient(clientId, options) {
 }
 
 export async function notifyNewReservation({ reservation, clientName }) {
+  const when = formatWhen(reservation).replace(/^ del /, ' el ');
+
   await dispatchToAdmins(NOTIFICATION_EVENTS.NEW_RESERVATION, {
     title: 'Nueva reserva',
-    body: `${clientName} reservó clase el ${formatClassDate(reservation.classDate)} a las ${reservation.startTime}`,
+    body: `${clientName} reservó clase${when}`,
     payload: { url: `${env.appUrl}/admin/clases` },
   });
 }
 
 export async function notifyPendingReservation({ reservation, clientName }) {
-  const when =
-    reservation?.classDate && reservation?.startTime
-      ? ` el ${formatClassDate(reservation.classDate)} a las ${reservation.startTime}`
-      : '';
+  const when = formatWhen(reservation).replace(/^ del /, ' el ');
 
   await dispatchToAdmins(NOTIFICATION_EVENTS.PENDING_REQUEST, {
     title: 'Solicitud de clase puntual',
@@ -149,34 +147,67 @@ export async function notifyPendingReservation({ reservation, clientName }) {
 }
 
 export async function notifyReservationApproved({ reservation, clientId }) {
+  const when = formatWhen(reservation);
+
   await dispatchToClient(clientId, {
     eventType: NOTIFICATION_EVENTS.RESERVATION_APPROVED,
     title: 'Reserva confirmada',
-    body: `Tu clase del ${formatClassDate(reservation.classDate)} a las ${reservation.startTime} fue confirmada`,
+    body: `Tu clase${when} fue confirmada`,
     payload: { url: `${env.appUrl}/cliente/reservas` },
   });
 }
 
+/**
+ * Textos según el caso:
+ * - Solicitud pendiente cancelada por el cliente → avisa al admin (no al cliente).
+ * - Solicitud pendiente cancelada por el admin → avisa al cliente.
+ * - Clase confirmada cancelada por el cliente → avisa al admin (no al cliente).
+ * - Clase confirmada cancelada por el admin → avisa al cliente ("Tu clase… fue cancelada").
+ */
 export async function notifyReservationCancelled({
   reservation,
   clientId,
   clientName,
   cancelledBy,
+  wasPendingRequest = false,
 }) {
+  const when = formatWhen(reservation);
+
+  if (wasPendingRequest) {
+    if (cancelledBy === 'client') {
+      await dispatchToAdmins(NOTIFICATION_EVENTS.CANCELLATION, {
+        title: 'Solicitud cancelada',
+        body: `${clientName} canceló la solicitud por la clase${when}`,
+        payload: { url: `${env.appUrl}/admin/clases?tab=solicitudes` },
+      });
+    } else if (cancelledBy === 'admin') {
+      await dispatchToClient(clientId, {
+        eventType: NOTIFICATION_EVENTS.CANCELLATION,
+        title: 'Solicitud cancelada',
+        body: `La solicitud por la clase${when} fue cancelada`,
+        payload: { url: `${env.appUrl}/cliente/reservas` },
+      });
+    }
+    return;
+  }
+
   if (cancelledBy === 'client') {
     await dispatchToAdmins(NOTIFICATION_EVENTS.CANCELLATION, {
       title: 'Cliente canceló una clase',
-      body: `${clientName} canceló la clase del ${formatClassDate(reservation.classDate)} a las ${reservation.startTime}`,
+      body: `${clientName} canceló la clase${when}`,
       payload: { url: `${env.appUrl}/admin/clases` },
     });
+    return;
   }
 
-  await dispatchToClient(clientId, {
-    eventType: NOTIFICATION_EVENTS.CANCELLATION,
-    title: 'Reserva cancelada',
-    body: `Tu clase del ${formatClassDate(reservation.classDate)} a las ${reservation.startTime} fue cancelada`,
-    payload: { url: `${env.appUrl}/cliente/reservas` },
-  });
+  if (cancelledBy === 'admin') {
+    await dispatchToClient(clientId, {
+      eventType: NOTIFICATION_EVENTS.CANCELLATION,
+      title: 'Clase cancelada',
+      body: `Tu clase${when} fue cancelada`,
+      payload: { url: `${env.appUrl}/cliente/reservas` },
+    });
+  }
 }
 
 export async function notifyScheduleChangeRequested({ request: _request, clientName }) {

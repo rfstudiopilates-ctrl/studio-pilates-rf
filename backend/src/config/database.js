@@ -61,6 +61,13 @@ export async function ensureSchemaPatches() {
             ADD COLUMN pwa_installed_at TIMESTAMP NULL DEFAULT NULL
             AFTER last_login_at`,
     },
+    {
+      table: 'notification_logs',
+      column: 'read_at',
+      ddl: `ALTER TABLE notification_logs
+            ADD COLUMN read_at TIMESTAMP NULL DEFAULT NULL
+            AFTER sent_at`,
+    },
   ];
 
   for (const patch of patches) {
@@ -77,6 +84,25 @@ export async function ensureSchemaPatches() {
       await pool.query(patch.ddl);
       console.log(`[DB] Columna agregada: ${patch.table}.${patch.column}`);
     }
+  }
+
+  // Ampliar ENUM de canal para notificaciones in-app (campanita).
+  const [channelRows] = await pool.query(
+    `SELECT COLUMN_TYPE AS columnType
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'notification_logs'
+       AND COLUMN_NAME = 'channel'
+     LIMIT 1`
+  );
+
+  const channelType = String(channelRows[0]?.columnType || '');
+  if (channelType && !channelType.includes("'in_app'")) {
+    await pool.query(
+      `ALTER TABLE notification_logs
+       MODIFY COLUMN channel ENUM('push', 'whatsapp', 'in_app') NOT NULL`
+    );
+    console.log('[DB] Canal in_app habilitado en notification_logs.channel');
   }
 }
 

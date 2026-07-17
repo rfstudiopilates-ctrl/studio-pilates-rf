@@ -47,6 +47,8 @@ function mapNotificationLogRow(row) {
     whatsappUrl: row.whatsapp_url,
     status: row.status,
     sentAt: row.sent_at,
+    readAt: row.read_at || null,
+    isRead: Boolean(row.read_at),
     createdAt: row.created_at,
   };
 }
@@ -294,6 +296,104 @@ export async function listReservationsFor24hReminder() {
     endTime: row.end_time?.slice?.(0, 5) || row.end_time,
     status: row.status,
   }));
+}
+
+export async function listInboxNotifications({
+  recipientType,
+  recipientId,
+  page = 1,
+  limit = 30,
+}) {
+  const offset = (page - 1) * limit;
+  const params = [recipientType, Number(recipientId)];
+
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM notification_logs
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'
+       AND status = 'sent'`,
+    params
+  );
+
+  const [unreadRows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM notification_logs
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'
+       AND status = 'sent'
+       AND read_at IS NULL`,
+    params
+  );
+
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM notification_logs
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'
+       AND status = 'sent'
+     ORDER BY created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  return {
+    items: rows.map(mapNotificationLogRow),
+    unreadCount: Number(unreadRows[0]?.total || 0),
+    pagination: {
+      page,
+      limit,
+      total: Number(countRows[0]?.total || 0),
+      totalPages: Math.ceil(Number(countRows[0]?.total || 0) / limit) || 1,
+    },
+  };
+}
+
+export async function countUnreadInbox({ recipientType, recipientId }) {
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM notification_logs
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'
+       AND status = 'sent'
+       AND read_at IS NULL`,
+    [recipientType, Number(recipientId)]
+  );
+
+  return Number(rows[0]?.total || 0);
+}
+
+export async function markInboxNotificationRead({ id, recipientType, recipientId }) {
+  await pool.query(
+    `UPDATE notification_logs
+     SET read_at = COALESCE(read_at, CURRENT_TIMESTAMP)
+     WHERE id = ?
+       AND recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'`,
+    [id, recipientType, Number(recipientId)]
+  );
+
+  return findNotificationLogById(id);
+}
+
+export async function markAllInboxNotificationsRead({ recipientType, recipientId }) {
+  const [result] = await pool.query(
+    `UPDATE notification_logs
+     SET read_at = CURRENT_TIMESTAMP
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'
+       AND status = 'sent'
+       AND read_at IS NULL`,
+    [recipientType, Number(recipientId)]
+  );
+
+  return { updated: result.affectedRows || 0 };
 }
 
 export async function getClientById(clientId) {

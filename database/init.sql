@@ -512,7 +512,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 
 CREATE TABLE IF NOT EXISTS notification_logs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  channel ENUM('push', 'whatsapp') NOT NULL,
+  channel ENUM('push', 'whatsapp', 'in_app') NOT NULL,
   recipient_type ENUM('admin', 'client') NOT NULL,
   recipient_id INT UNSIGNED NOT NULL,
   event_type VARCHAR(50) NOT NULL,
@@ -523,12 +523,14 @@ CREATE TABLE IF NOT EXISTS notification_logs (
   whatsapp_url TEXT NULL,
   status ENUM('pending', 'sent', 'failed', 'skipped') NOT NULL DEFAULT 'pending',
   sent_at TIMESTAMP NULL,
+  read_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_notification_logs_recipient (recipient_type, recipient_id),
   KEY idx_notification_logs_event (event_type),
   KEY idx_notification_logs_status (status),
-  KEY idx_notification_logs_created (created_at)
+  KEY idx_notification_logs_created (created_at),
+  KEY idx_notification_logs_unread (recipient_type, recipient_id, channel, read_at)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS notification_reminders (

@@ -1,5 +1,6 @@
 import * as notificationsRepository from './notifications.repository.js';
 import * as pushService from './push.service.js';
+import { createAppError } from '../../utils/AppError.js';
 
 export function getVapidPublicKey() {
   return {
@@ -26,4 +27,48 @@ export async function unsubscribePush(userType, userId, endpoint) {
     Number(userId)
   );
   return { message: 'Suscripción push desactivada' };
+}
+
+export async function getInbox(userType, userId, query = {}) {
+  return notificationsRepository.listInboxNotifications({
+    recipientType: userType,
+    recipientId: Number(userId),
+    page: query.page || 1,
+    limit: query.limit || 30,
+  });
+}
+
+export async function getUnreadCount(userType, userId) {
+  const unreadCount = await notificationsRepository.countUnreadInbox({
+    recipientType: userType,
+    recipientId: Number(userId),
+  });
+
+  return { unreadCount };
+}
+
+export async function markAsRead(userType, userId, notificationId) {
+  const notification = await notificationsRepository.markInboxNotificationRead({
+    id: Number(notificationId),
+    recipientType: userType,
+    recipientId: Number(userId),
+  });
+
+  if (
+    !notification ||
+    notification.channel !== 'in_app' ||
+    notification.recipientType !== userType ||
+    Number(notification.recipientId) !== Number(userId)
+  ) {
+    throw createAppError('Notificación no encontrada', 404);
+  }
+
+  return notification;
+}
+
+export async function markAllAsRead(userType, userId) {
+  return notificationsRepository.markAllInboxNotificationsRead({
+    recipientType: userType,
+    recipientId: Number(userId),
+  });
 }

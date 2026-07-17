@@ -24,12 +24,17 @@ const eventTypeEnum = z.enum([
 ]);
 
 export const listNotificationsQuerySchema = z.object({
-  channel: z.enum(['push', 'whatsapp']).optional(),
+  channel: z.enum(['push', 'whatsapp', 'in_app']).optional(),
   status: z.enum(['pending', 'sent', 'failed', 'skipped']).optional(),
   eventType: eventTypeEnum.optional(),
   recipientType: z.enum(['admin', 'client']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export const inboxQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(30),
 });
 
 export function validateBody(schema) {

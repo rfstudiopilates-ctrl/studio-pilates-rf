@@ -15,4 +15,24 @@ export const notificationsApi = {
     const { data } = await api.post('/notifications/push/unsubscribe', payload);
     return data.data;
   },
+
+  getInbox: async (params = {}) => {
+    const { data } = await api.get('/notifications/inbox', { params });
+    return data.data;
+  },
+
+  getUnreadCount: async () => {
+    const { data } = await api.get('/notifications/inbox/unread-count');
+    return data.data;
+  },
+
+  markAsRead: async (id) => {
+    const { data } = await api.post(`/notifications/inbox/${id}/read`);
+    return data.data;
+  },
+
+  markAllAsRead: async () => {
+    const { data } = await api.post('/notifications/inbox/read-all');
+    return data.data;
+  },
 };

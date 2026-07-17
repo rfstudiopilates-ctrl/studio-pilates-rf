@@ -29,6 +29,30 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
   },
 };
 
+/**
+ * Une defaults + datos guardados para notificaciones.
+ * Si el JSON guardado no tiene alguna clave (p. ej. `pendingRequest`),
+ * se toma el valor por defecto (true) en vez de tratarlo como false.
+ */
+export function normalizeNotificationSettings(raw) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+
+  const merged = {};
+  for (const group of Object.keys(DEFAULT_NOTIFICATION_SETTINGS)) {
+    const defaults = DEFAULT_NOTIFICATION_SETTINGS[group];
+    const stored = source[group] && typeof source[group] === 'object' ? source[group] : {};
+
+    merged[group] = { ...defaults };
+    for (const key of Object.keys(defaults)) {
+      if (typeof stored[key] === 'boolean') {
+        merged[group][key] = stored[key];
+      }
+    }
+  }
+
+  return merged;
+}
+
 /** Plantillas conectadas a flujos reales de WhatsApp (wa.me). */
 export const WHATSAPP_MESSAGE_FIELDS = [
   {

@@ -766,6 +766,7 @@ export async function cancelReservation({
           clientId: reservation.clientId,
           clientName: reservation.clientName,
           cancelledBy,
+          wasPendingRequest: isDropInPending,
         })
       );
     }

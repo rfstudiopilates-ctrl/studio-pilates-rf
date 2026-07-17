@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import * as notificationsController from './notifications.controller.js';
 import {
+  inboxQuerySchema,
   pushSubscribeSchema,
   unsubscribeSchema,
   validateBody,
+  validateQuery,
 } from './notifications.validation.js';
 import { authenticate, authorize } from '../../middleware/authenticate.js';
 
@@ -25,6 +27,35 @@ router.post(
   authorize('admin', 'client'),
   validateBody(unsubscribeSchema),
   notificationsController.unsubscribePush
+);
+
+router.get(
+  '/inbox',
+  authenticate,
+  authorize('admin', 'client'),
+  validateQuery(inboxQuerySchema),
+  notificationsController.getInbox
+);
+
+router.get(
+  '/inbox/unread-count',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.getUnreadCount
+);
+
+router.post(
+  '/inbox/read-all',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.markAllAsRead
+);
+
+router.post(
+  '/inbox/:id/read',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.markAsRead
 );
 
 export default router;

@@ -6,6 +6,7 @@ import { useSidebar } from '../../hooks/useSidebar';
 import AppSidebar from './AppSidebar';
 import NavIcon from '../ui/NavIcon';
 import { Button } from '../ui/Button';
+import NotificationBell from '../notifications/NotificationBell';
 
 export default function AppShell({
   title,
@@ -62,7 +63,8 @@ export default function AppShell({
               </div>
             </div>
 
-            <div className="flex shrink-0 items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <NotificationBell />
               <span className="hidden max-w-[12rem] truncate text-sm text-text-muted md:inline">
                 {user?.fullName}
               </span>

@@ -29,3 +29,47 @@ export async function unsubscribePush(req, res, next) {
     next(error);
   }
 }
+
+export async function getInbox(req, res, next) {
+  try {
+    const data = await notificationsService.getInbox(
+      req.auth.role,
+      req.auth.sub,
+      req.validatedQuery || {}
+    );
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getUnreadCount(req, res, next) {
+  try {
+    const data = await notificationsService.getUnreadCount(req.auth.role, req.auth.sub);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markAsRead(req, res, next) {
+  try {
+    const notification = await notificationsService.markAsRead(
+      req.auth.role,
+      req.auth.sub,
+      req.params.id
+    );
+    res.json({ success: true, data: { notification } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markAllAsRead(req, res, next) {
+  try {
+    const data = await notificationsService.markAllAsRead(req.auth.role, req.auth.sub);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}

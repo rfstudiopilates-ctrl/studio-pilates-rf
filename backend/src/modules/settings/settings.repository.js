@@ -1,7 +1,7 @@
 import { pool } from '../../config/database.js';
 import {
-  DEFAULT_NOTIFICATION_SETTINGS,
   DEFAULT_WHATSAPP_MESSAGES,
+  normalizeNotificationSettings,
   normalizeWhatsappMessages,
 } from './settings.defaults.js';
 
@@ -37,7 +37,9 @@ function mapSettingsRow(row) {
     whatsappMessages: normalizeWhatsappMessages(
       parseJsonField(row.whatsapp_messages, DEFAULT_WHATSAPP_MESSAGES)
     ),
-    notificationSettings: parseJsonField(row.notification_settings, DEFAULT_NOTIFICATION_SETTINGS),
+    notificationSettings: normalizeNotificationSettings(
+      parseJsonField(row.notification_settings, null)
+    ),
     maxClassCapacity: row.max_class_capacity,
     classDurationMinutes: row.class_duration_minutes,
     cancellationHours: row.cancellation_hours,
@@ -113,7 +115,7 @@ export async function updateSettings(payload) {
 
   if (payload.notificationSettings !== undefined) {
     fields.push('notification_settings = ?');
-    values.push(JSON.stringify(payload.notificationSettings));
+    values.push(JSON.stringify(normalizeNotificationSettings(payload.notificationSettings)));
   }
 
   if (fields.length === 0) {
