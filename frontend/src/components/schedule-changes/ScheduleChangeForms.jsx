@@ -2,38 +2,21 @@ import { useState } from 'react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
-import { useClassesAvailability } from '../../hooks/useClasses';
+import ReassignClassPicker from '../reservations/ReassignClassPicker';
 import {
   useCancelScheduleChange,
   useCreateScheduleChange,
   useMyScheduleChanges,
 } from '../../hooks/useScheduleChanges';
 import { SCHEDULE_CHANGE_STATUS_LABELS } from '../../constants/scheduleChanges';
-import {
-  addDaysToDate,
-  formatDateDisplay,
-  getTodayInArgentina,
-  normalizeDateInput,
-} from '../../lib/dates';
+import { formatDateDisplay } from '../../lib/dates';
 import { getErrorMessage } from '../../lib/formErrors';
 
 export default function ScheduleChangeRequestForm({ reservation, onSuccess }) {
-  const today = getTodayInArgentina();
-  const { data: availability } = useClassesAvailability({
-    from: today,
-    to: addDaysToDate(today, 21),
-  });
-
   const createChange = useCreateScheduleChange();
   const [toClassId, setToClassId] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
-
-  const availableClasses = (availability?.items || []).filter(
-    (classItem) =>
-      classItem.id !== reservation.generatedClassId && !classItem.isFull
-  );
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -57,22 +40,19 @@ export default function ScheduleChangeRequestForm({ reservation, onSuccess }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 space-y-3 rounded-xl border border-border bg-surface-muted/50 p-4">
+    <form
+      onSubmit={handleSubmit}
+      className="mt-3 space-y-3 rounded-xl border border-border bg-surface-muted/50 p-4"
+    >
       <p className="text-sm font-medium text-text">Solicitar cambio de horario</p>
 
-      <Select
-        label="Nueva clase"
+      <ReassignClassPicker
+        excludeClassId={reservation.generatedClassId}
         value={toClassId}
-        onChange={(event) => setToClassId(event.target.value)}
-      >
-        <option value="">Seleccionar clase</option>
-        {availableClasses.map((classItem) => (
-          <option key={classItem.id} value={classItem.id}>
-            {formatDateDisplay(normalizeDateInput(classItem.classDate))} · {classItem.startTime} (
-            {classItem.spotsAvailable} cupos)
-          </option>
-        ))}
-      </Select>
+        onChange={setToClassId}
+        disabled={createChange.isPending}
+        label="Nueva clase"
+      />
 
       <Input
         label="Motivo (opcional)"
@@ -83,7 +63,12 @@ export default function ScheduleChangeRequestForm({ reservation, onSuccess }) {
 
       {error ? <Alert variant="error">{error}</Alert> : null}
 
-      <Button type="submit" isLoading={createChange.isPending} className="w-full sm:w-auto">
+      <Button
+        type="submit"
+        isLoading={createChange.isPending}
+        disabled={!toClassId}
+        className="w-full sm:w-auto"
+      >
         Enviar solicitud
       </Button>
     </form>

@@ -27,13 +27,13 @@ export default function ClientsListFilters({
   return (
     <section className="rounded-2xl border border-border bg-white p-5 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-6">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-nowrap sm:items-end lg:gap-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:flex-nowrap sm:items-end sm:gap-3 lg:gap-4">
           <Input
             label="Buscar"
             placeholder="Nombre, usuario o teléfono..."
             value={filters.search}
             onChange={(event) => updateFilter('search', event.target.value)}
-            className="min-w-0 flex-[1_1_12rem] sm:min-w-[10rem] sm:flex-[2]"
+            className="w-full min-w-0 sm:min-w-[10rem] sm:flex-[2]"
           />
 
           <Select

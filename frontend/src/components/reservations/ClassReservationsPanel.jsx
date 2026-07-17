@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import ClientSearchSelect from '../clients/ClientSearchSelect';
 import WhatsAppReminderButton from '../notifications/WhatsAppReminderButton';
 import GuestReservationConfirmModal from './GuestReservationConfirmModal';
+import ReassignClassPicker from './ReassignClassPicker';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
@@ -11,7 +12,6 @@ import {
   RESERVATION_STATUS_LABELS,
   RESERVATION_STATUS_STYLES,
 } from '../../constants/reservations';
-import { useClassesCalendar } from '../../hooks/useClasses';
 import { useAdminReassignReservation } from '../../hooks/useScheduleChanges';
 import { getErrorMessage } from '../../lib/formErrors';
 import {
@@ -20,7 +20,7 @@ import {
   useConfirmReservation,
   useCreateReservation,
 } from '../../hooks/useReservations';
-import { formatDateDisplay, addDaysToDate, getTodayInArgentina } from '../../lib/dates';
+import { formatDateDisplay } from '../../lib/dates';
 
 function getInitials(name = '') {
   return name
@@ -97,7 +97,6 @@ function ReservationCard({
   setReassignFor,
   reassignClassId,
   setReassignClassId,
-  availableClasses,
   onConfirm,
   onCancel,
   onReassign,
@@ -162,11 +161,15 @@ function ReservationCard({
             <Button
               variant="secondary"
               className="h-8 px-3 text-xs"
-              onClick={() =>
-                setReassignFor(reassignFor === reservation.id ? null : reservation.id)
-              }
+              onClick={() => {
+                const opening = reassignFor !== reservation.id;
+                setReassignFor(opening ? reservation.id : null);
+                if (opening) {
+                  setReassignClassId('');
+                }
+              }}
             >
-              Reasignar
+              {reassignFor === reservation.id ? 'Cerrar' : 'Reasignar'}
             </Button>
           ) : null}
           {['pending', 'confirmed'].includes(reservation.status) ? (
@@ -183,29 +186,35 @@ function ReservationCard({
       </div>
 
       {reassignFor === reservation.id ? (
-        <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3 sm:flex-row sm:items-end">
-          <Select
-            label="Clase destino"
+        <div className="mt-3 space-y-3 border-t border-border/70 pt-3">
+          <ReassignClassPicker
+            excludeClassId={classItem.id}
             value={reassignClassId}
-            onChange={(event) => setReassignClassId(event.target.value)}
-            className="flex-1"
-          >
-            <option value="">Seleccionar clase</option>
-            {availableClasses
-              .filter((item) => item.id !== classItem.id)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {formatDateDisplay(item.classDate)} · {item.startTime}
-                </option>
-              ))}
-          </Select>
-          <Button
-            className="h-11"
-            onClick={() => onReassign(reservation.id)}
-            isLoading={reassignPending}
-          >
-            Confirmar
-          </Button>
+            onChange={setReassignClassId}
+            disabled={reassignPending}
+            label="Reasignar a"
+          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              variant="secondary"
+              className="h-11"
+              onClick={() => {
+                setReassignFor(null);
+                setReassignClassId('');
+              }}
+              disabled={reassignPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="h-11"
+              onClick={() => onReassign(reservation.id)}
+              isLoading={reassignPending}
+              disabled={!reassignClassId}
+            >
+              Confirmar reasignación
+            </Button>
+          </div>
         </div>
       ) : null}
     </article>
@@ -219,12 +228,6 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
   const cancelReservation = useCancelReservation();
   const reassignReservation = useAdminReassignReservation();
 
-  const today = getTodayInArgentina();
-  const { data: availability } = useClassesCalendar({
-    from: today,
-    to: addDaysToDate(today, 21),
-  });
-
   const [selectedClient, setSelectedClient] = useState(null);
   const [status, setStatus] = useState('confirmed');
   const [feedback, setFeedback] = useState(null);
@@ -232,9 +235,6 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
   const [reassignClassId, setReassignClassId] = useState('');
   const [guestReservation, setGuestReservation] = useState(null);
 
-  const availableClasses = (availability?.classes || []).filter(
-    (item) => !item.isFull && item.status === 'scheduled'
-  );
   const activeReservations = reservations.filter((item) =>
     ['pending', 'confirmed'].includes(item.status)
   );
@@ -338,7 +338,6 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
               setReassignFor={setReassignFor}
               reassignClassId={reassignClassId}
               setReassignClassId={setReassignClassId}
-              availableClasses={availableClasses}
               onConfirm={handleConfirm}
               onCancel={handleCancel}
               onReassign={handleReassign}
