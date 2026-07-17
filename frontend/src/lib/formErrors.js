@@ -74,5 +74,9 @@ export function mapBusinessErrorToFields(message) {
     return { fields: { username: message }, formError: '' };
   }
 
+  if (normalized.includes('email')) {
+    return { fields: { email: message }, formError: '' };
+  }
+
   return { fields: {}, formError: message };
 }

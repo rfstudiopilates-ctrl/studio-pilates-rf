@@ -77,5 +77,5 @@ export const SETTINGS_TABS = [
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'notifications', label: 'Notificaciones' },
   { id: 'fiscal', label: 'Datos fiscales' },
-  { id: 'seguridad', label: 'Seguridad' },
+  { id: 'seguridad', label: 'Administradores' },
 ];

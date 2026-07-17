@@ -12,12 +12,14 @@ import scheduleChangesRoutes from '../modules/schedule-changes/schedule-changes.
 import dashboardRoutes from '../modules/dashboard/dashboard.routes.js';
 import notificationsRoutes from '../modules/notifications/notifications.routes.js';
 import reportsRoutes from '../modules/reports/reports.routes.js';
+import adminsRoutes from '../modules/admins/admins.routes.js';
 
 const router = Router();
 
 router.use('/health', healthRoutes);
 router.use('/auth', authRoutes);
 router.use('/settings', settingsRoutes);
+router.use('/admins', adminsRoutes);
 router.use('/clients', clientsRoutes);
 router.use('/plans', plansRoutes);
 router.use('/finances', financesRoutes);

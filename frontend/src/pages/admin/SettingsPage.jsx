@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AdminLayout from '../../components/admin/AdminLayout';
 import PlansPanel from '../../components/plans/PlansPanel';
+import AdminsPanel from '../../components/admins/AdminsPanel';
 import StudioLogo from '../../components/studio/StudioLogo';
 import { Alert } from '../../components/ui/Alert';
 import { Button } from '../../components/ui/Button';
@@ -12,7 +13,6 @@ import { Select } from '../../components/ui/Select';
 import { Textarea } from '../../components/ui/Textarea';
 import { Toggle } from '../../components/ui/Toggle';
 import PushNotificationBanner from '../../components/notifications/PushNotificationBanner';
-import ChangePasswordForm from '../../components/auth/ChangePasswordForm';
 import {
   DEFAULT_WHATSAPP_MESSAGES,
   NOTIFICATION_FIELDS,
@@ -108,7 +108,7 @@ export default function SettingsPage() {
     }
 
     if (activeTab === 'seguridad') {
-      return 'Cambiá tu contraseña de acceso al panel de administración.';
+      return 'Administrá las cuentas del panel y tu contraseña de acceso.';
     }
 
     return 'Personalizá tu estudio sin modificar código: branding, reglas y mensajes.';
@@ -221,14 +221,7 @@ export default function SettingsPage() {
     return (
       <AdminLayout title="Configuración" subtitle={subtitle}>
         {tabsNav}
-        <SectionCard
-          title="Cambiar contraseña"
-          description="Actualizá la contraseña con la que ingresás al panel. Por seguridad, después del cambio vas a tener que iniciar sesión de nuevo."
-        >
-          <div className="max-w-md">
-            <ChangePasswordForm />
-          </div>
-        </SectionCard>
+        <AdminsPanel />
       </AdminLayout>
     );
   }
