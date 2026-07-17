@@ -31,8 +31,8 @@ export const authApi = {
     return data.data.user;
   },
 
-  changePassword: async (payload) => {
-    const { data } = await api.post('/auth/change-password', payload);
+  markPwaInstalled: async () => {
+    const { data } = await api.post('/auth/pwa-installed');
     return data.data;
   },
 };

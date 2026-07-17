@@ -14,7 +14,7 @@ export async function findAdminByEmail(email) {
 
 export async function findAdminByUsername(username) {
   const [rows] = await pool.query(
-    `SELECT id, email, username, password_hash, full_name, role, is_active
+    `SELECT id, email, username, password_hash, full_name, role, is_active, pwa_installed_at
      FROM users
      WHERE username = ?
      LIMIT 1`,
@@ -26,7 +26,7 @@ export async function findAdminByUsername(username) {
 
 export async function findAdminById(id) {
   const [rows] = await pool.query(
-    `SELECT id, email, username, full_name, role, is_active, last_login_at, created_at
+    `SELECT id, email, username, full_name, role, is_active, last_login_at, pwa_installed_at, created_at
      FROM users
      WHERE id = ?
      LIMIT 1`,
@@ -57,6 +57,16 @@ export async function updateAdminPassword(userId, passwordHash) {
     passwordHash,
     userId,
   ]);
+}
+
+export async function markAdminPwaInstalled(userId) {
+  await pool.query(
+    `UPDATE users
+     SET pwa_installed_at = COALESCE(pwa_installed_at, CURRENT_TIMESTAMP),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [userId]
+  );
 }
 
 export async function createRefreshToken({ subjectType, subjectId, tokenHash, expiresAt }) {

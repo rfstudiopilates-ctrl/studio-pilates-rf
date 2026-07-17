@@ -11,6 +11,13 @@
   "lang": "es-AR",
   "dir": "ltr",
   "categories": ["business", "health", "productivity"],
+  "prefer_related_applications": false,
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "/manifest.webmanifest"
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon-72.png",

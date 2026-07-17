@@ -49,5 +49,6 @@ router.post(
   validateBody(changePasswordSchema),
   authController.changePassword
 );
+router.post('/pwa-installed', authenticate, authController.markPwaInstalled);
 
 export default router;

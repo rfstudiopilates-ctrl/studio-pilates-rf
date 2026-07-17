@@ -122,3 +122,12 @@ export async function changePassword(req, res, next) {
     next(error);
   }
 }
+
+export async function markPwaInstalled(req, res, next) {
+  try {
+    const user = await authService.markPwaInstalled(req.auth.role, req.auth.sub);
+    sendSuccess(res, { user, message: 'Preferencia de app guardada' });
+  } catch (error) {
+    next(error);
+  }
+}

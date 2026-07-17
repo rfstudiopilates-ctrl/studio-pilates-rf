@@ -18,7 +18,7 @@ export function Input({
       <div className="relative">
         <input
           id={inputId}
-          className={`h-11 w-full rounded-xl border bg-white px-4 text-sm text-text outline-none transition-all duration-200 placeholder:text-text-muted focus:border-brand-400 focus:ring-4 focus:ring-brand-100 ${
+          className={`h-11 w-full rounded-xl border bg-white px-4 text-base text-text outline-none transition-all duration-200 placeholder:text-text-muted focus:border-brand-400 focus:ring-4 focus:ring-brand-100 sm:text-sm ${
             suffix ? 'pr-11' : ''
           } ${error ? 'border-danger' : 'border-border'}`}
           {...props}

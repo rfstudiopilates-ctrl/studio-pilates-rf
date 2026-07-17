@@ -19,6 +19,7 @@ function sanitizeAdmin(user) {
     username: user.username,
     fullName: user.full_name,
     role: 'admin',
+    pwaInstalled: Boolean(user.pwa_installed_at || user.pwaInstalled),
   };
 }
 
@@ -30,6 +31,7 @@ function sanitizeClient(client) {
     phone: client.phone,
     status: client.status,
     role: 'client',
+    pwaInstalled: Boolean(client.pwaInstalled),
   };
 }
 
@@ -307,4 +309,14 @@ export async function changePassword({ role, id, currentPassword, newPassword })
   await authRepository.revokeAllRefreshTokens('client', id);
 
   return { message: 'Contraseña actualizada correctamente' };
+}
+
+export async function markPwaInstalled(role, id) {
+  if (role === 'admin') {
+    await authRepository.markAdminPwaInstalled(id);
+  } else {
+    await clientsRepository.markClientPwaInstalled(id);
+  }
+
+  return getAuthenticatedUser(role, id);
 }

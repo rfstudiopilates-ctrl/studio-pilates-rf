@@ -10,7 +10,7 @@ export function Select({ label, error, id, className = '', children, ...props })
       ) : null}
       <select
         id={selectId}
-        className={`h-11 w-full rounded-xl border bg-white px-4 text-sm text-text outline-none transition-all duration-200 focus:border-brand-400 focus:ring-4 focus:ring-brand-100 ${
+        className={`h-11 w-full rounded-xl border bg-white px-4 text-base text-text outline-none transition-all duration-200 focus:border-brand-400 focus:ring-4 focus:ring-brand-100 sm:text-sm ${
           error ? 'border-danger' : 'border-border'
         }`}
         {...props}

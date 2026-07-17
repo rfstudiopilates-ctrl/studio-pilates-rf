@@ -47,6 +47,20 @@ export async function ensureSchemaPatches() {
             ADD COLUMN debt_booking_block_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00
             AFTER block_booking_on_debt`,
     },
+    {
+      table: 'clients',
+      column: 'pwa_installed_at',
+      ddl: `ALTER TABLE clients
+            ADD COLUMN pwa_installed_at TIMESTAMP NULL DEFAULT NULL
+            AFTER last_login_at`,
+    },
+    {
+      table: 'users',
+      column: 'pwa_installed_at',
+      ddl: `ALTER TABLE users
+            ADD COLUMN pwa_installed_at TIMESTAMP NULL DEFAULT NULL
+            AFTER last_login_at`,
+    },
   ];
 
   for (const patch of patches) {

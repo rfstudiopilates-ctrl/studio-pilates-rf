@@ -21,6 +21,7 @@ function mapClientRow(row) {
     status: row.status,
     internalNotes: row.internal_notes,
     lastLoginAt: row.last_login_at,
+    pwaInstalled: Boolean(row.pwa_installed_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     activePlanId: row.active_plan_id ?? null,
@@ -45,7 +46,7 @@ function mapHistoryRow(row) {
 
 export async function findClientById(id) {
   const [rows] = await pool.query(
-    `SELECT id, username, full_name, phone, status, internal_notes, last_login_at, created_at, updated_at
+    `SELECT id, username, full_name, phone, status, internal_notes, last_login_at, pwa_installed_at, created_at, updated_at
      FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
     [id]
   );
@@ -69,7 +70,7 @@ export async function lockClientById(id, connection) {
 
 export async function findClientByUsername(username) {
   const [rows] = await pool.query(
-    `SELECT id, username, password_hash, full_name, phone, status, internal_notes, last_login_at, created_at, updated_at
+    `SELECT id, username, password_hash, full_name, phone, status, internal_notes, last_login_at, pwa_installed_at, created_at, updated_at
      FROM clients WHERE username = ? AND deleted_at IS NULL LIMIT 1`,
     [username]
   );
@@ -296,6 +297,16 @@ export async function hardDeleteClient(id) {
 
 export async function updateClientLastLogin(clientId) {
   await pool.query('UPDATE clients SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?', [clientId]);
+}
+
+export async function markClientPwaInstalled(clientId) {
+  await pool.query(
+    `UPDATE clients
+     SET pwa_installed_at = COALESCE(pwa_installed_at, CURRENT_TIMESTAMP),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND deleted_at IS NULL`,
+    [clientId]
+  );
 }
 
 export async function createClientHistory({

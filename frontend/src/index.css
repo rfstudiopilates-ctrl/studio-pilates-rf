@@ -28,14 +28,38 @@
 
   html {
     @apply scroll-smooth;
+    width: 100%;
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
     @apply min-h-screen bg-surface-muted font-sans text-text antialiased;
+    width: 100%;
+    overflow-x: clip;
+    overscroll-behavior-y: none;
   }
 
   #root {
     @apply min-h-screen;
+    width: 100%;
+    overflow-x: clip;
+  }
+
+  /* Evita el auto-zoom de iOS al enfocar inputs (< 16px). */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  @media (min-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: inherit;
+    }
   }
 }
 

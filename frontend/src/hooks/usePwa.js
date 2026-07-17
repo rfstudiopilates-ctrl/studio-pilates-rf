@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useAuth } from './useAuth';
+import { authApi } from '../services/authService';
 import {
   applyWaitingServiceWorker,
   canShowInstallBanner,
@@ -7,6 +9,8 @@ import {
   dismissIosGuide,
   isAppInstalled,
   isIosDevice,
+  isStandaloneDisplay,
+  markAppInstalledLocally,
   promptInstallApp,
   subscribeInstallPrompt,
   subscribeOnlineStatus,
@@ -14,22 +18,65 @@ import {
 } from '../lib/pwa';
 
 export function usePwaInstall() {
+  const { user, setSession, accessToken } = useAuth();
   const [canInstall, setCanInstall] = useState(false);
   const [showIosGuide, setShowIosGuide] = useState(false);
-  const [installed, setInstalled] = useState(isAppInstalled());
+  const [installed, setInstalled] = useState(
+    () => isAppInstalled() || Boolean(user?.pwaInstalled)
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    setInstalled(isAppInstalled());
-    setShowIosGuide(canShowIosInstallGuide());
+  const refreshVisibility = () => {
+    const nextInstalled = isAppInstalled() || Boolean(user?.pwaInstalled);
+    setInstalled(nextInstalled);
+    setCanInstall(!nextInstalled && canShowInstallBanner());
+    setShowIosGuide(!nextInstalled && canShowIosInstallGuide() && !canShowInstallBanner());
+  };
 
+  useEffect(() => {
+    refreshVisibility();
     return subscribeInstallPrompt(() => {
-      setCanInstall(canShowInstallBanner());
-      setInstalled(isAppInstalled());
-      setShowIosGuide(canShowIosInstallGuide() && !canShowInstallBanner());
+      refreshVisibility();
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.pwaInstalled]);
+
+  useEffect(() => {
+    if (!user?.pwaInstalled) {
+      return;
+    }
+
+    markAppInstalledLocally();
+    refreshVisibility();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.pwaInstalled]);
+
+  useEffect(() => {
+    if (!accessToken || !isStandaloneDisplay() || user?.pwaInstalled) {
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    authApi
+      .markPwaInstalled()
+      .then((result) => {
+        if (cancelled || !result?.user) {
+          return;
+        }
+
+        markAppInstalledLocally();
+        setSession({ accessToken, user: result.user });
+      })
+      .catch(() => {
+        markAppInstalledLocally();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, setSession, user?.pwaInstalled]);
 
   async function install() {
     setError('');
@@ -40,11 +87,22 @@ export function usePwaInstall() {
       setInstalled(true);
       setCanInstall(false);
       setShowIosGuide(false);
+
+      if (accessToken) {
+        try {
+          const result = await authApi.markPwaInstalled();
+          if (result?.user) {
+            setSession({ accessToken, user: result.user });
+          }
+        } catch {
+          // local flag ya quedó marcado
+        }
+      }
     } catch (installError) {
       if (installError.message !== 'Instalación cancelada') {
         setError(installError.message);
       }
-      setCanInstall(canShowInstallBanner());
+      refreshVisibility();
     } finally {
       setLoading(false);
     }
