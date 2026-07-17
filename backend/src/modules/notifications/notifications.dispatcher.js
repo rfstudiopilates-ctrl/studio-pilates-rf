@@ -171,13 +171,19 @@ export async function notifyPendingReservation({ reservation, clientName }) {
   });
 }
 
-export async function notifyReservationApproved({ reservation, clientId }) {
+export async function notifyReservationApproved({
+  reservation,
+  clientId,
+  wasDropIn = false,
+}) {
   const when = formatWhen(reservation);
 
   await dispatchToClient(clientId, {
     eventType: NOTIFICATION_EVENTS.RESERVATION_APPROVED,
-    title: 'Reserva confirmada',
-    body: `Tu clase${when} fue confirmada`,
+    title: wasDropIn ? 'Solicitud confirmada' : 'Reserva confirmada',
+    body: wasDropIn
+      ? `Tu solicitud de turno${when} fue confirmada. ¡Te esperamos!`
+      : `Tu clase${when} fue confirmada`,
     payload: { url: `${env.appUrl}/cliente/reservas` },
   });
 }

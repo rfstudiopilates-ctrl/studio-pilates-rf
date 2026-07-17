@@ -74,6 +74,17 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+export function useClearNotificationsInbox() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => notificationsApi.clearInbox(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY });
+    },
+  });
+}
+
 export function useSendTestPush() {
   const queryClient = useQueryClient();
 

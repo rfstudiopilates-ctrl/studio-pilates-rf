@@ -1,16 +1,21 @@
 import { useAuth } from '../../hooks/useAuth';
 import { usePublicSettings } from '../../hooks/useSettings';
 import { useSidebar } from '../../hooks/useSidebar';
+import { useSyncPushSubscription } from '../../hooks/useNotifications';
 import { CLIENT_NAV_ITEMS, CLIENT_SIDEBAR_STORAGE_KEY } from '../../constants/clientNav';
 import AppSidebar from '../layout/AppSidebar';
 import StudioLogo from '../studio/StudioLogo';
 import { Button } from '../ui/Button';
+import NotificationBell from '../notifications/NotificationBell';
 import ClientBottomNav from './ClientBottomNav';
 
 export default function ClientLayout({ title, subtitle, children }) {
   const { user, logout } = useAuth();
   const { data: settings } = usePublicSettings();
   const { collapsed, toggleCollapsed } = useSidebar(CLIENT_SIDEBAR_STORAGE_KEY);
+
+  // Mantiene la suscripción push activa en la PWA del cliente (iOS/Android).
+  useSyncPushSubscription();
 
   return (
     <div className="min-h-screen bg-surface-muted">
@@ -47,6 +52,7 @@ export default function ClientLayout({ title, subtitle, children }) {
             </div>
 
             <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+              <NotificationBell />
               <span className="hidden max-w-[10rem] truncate text-sm text-text-muted md:inline">
                 {user?.fullName}
               </span>

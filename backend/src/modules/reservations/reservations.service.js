@@ -615,8 +615,13 @@ export async function confirmReservation(reservationId, adminId, payload = {}) {
 
     runNotificationSafely(
       notifyReservationApproved({
-        reservation: updated,
-        clientId: updated.clientId,
+        reservation: {
+          ...updated,
+          classDate: updated.classDate || classItem.classDate,
+          startTime: updated.startTime || classItem.startTime,
+        },
+        clientId: reservation.clientId,
+        wasDropIn: dropIn,
       })
     );
 

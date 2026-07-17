@@ -52,6 +52,13 @@ router.post(
 );
 
 router.post(
+  '/inbox/clear',
+  authenticate,
+  authorize('admin', 'client'),
+  notificationsController.clearInbox
+);
+
+router.post(
   '/inbox/:id/read',
   authenticate,
   authorize('admin', 'client'),

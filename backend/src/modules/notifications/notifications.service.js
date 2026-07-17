@@ -74,6 +74,13 @@ export async function markAllAsRead(userType, userId) {
   });
 }
 
+export async function clearInbox(userType, userId) {
+  return notificationsRepository.clearInboxNotifications({
+    recipientType: userType,
+    recipientId: Number(userId),
+  });
+}
+
 export async function sendTestPush(userType, userId) {
   try {
     return await notifyTestPush({

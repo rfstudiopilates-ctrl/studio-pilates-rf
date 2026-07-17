@@ -17,6 +17,10 @@ import {
   formatWhatsAppNumber,
   openWhatsApp,
 } from '../../lib/whatsapp';
+import {
+  clearGuestConfirmResume,
+  saveGuestConfirmResume,
+} from '../../lib/guestConfirmResume';
 import { DEFAULT_WHATSAPP_MESSAGES } from '../../constants/settings';
 import { getErrorMessage } from '../../lib/formErrors';
 
@@ -98,6 +102,7 @@ export default function GuestReservationConfirmModal({
   reservation,
   onClose,
   onSuccess,
+  resumeState = null,
 }) {
   const confirmReservation = useConfirmReservation();
   const cancelReservation = useCancelReservation();
@@ -116,14 +121,19 @@ export default function GuestReservationConfirmModal({
 
   useEffect(() => {
     if (!open) return;
-    setStep(1);
+
+    const resumed =
+      resumeState &&
+      Number(resumeState.reservationId) === Number(reservation?.id);
+
+    setStep(resumed && resumeState.step ? Number(resumeState.step) : 1);
     setDepositAmount(null);
     setPaymentMethod('transfer');
     setNotes('');
     setError('');
-    setWhatsappOpened(false);
+    setWhatsappOpened(Boolean(resumed && resumeState.whatsappOpened));
     setDepositInitialized(false);
-  }, [open, reservation?.id]);
+  }, [open, reservation?.id, resumeState]);
 
   useEffect(() => {
     if (!open || depositInitialized || !dropInPlan) return;
@@ -156,6 +166,7 @@ export default function GuestReservationConfirmModal({
 
   const handleClose = () => {
     if (isBusy) return;
+    clearGuestConfirmResume();
     onClose?.();
   };
 
@@ -168,6 +179,12 @@ export default function GuestReservationConfirmModal({
     }
 
     try {
+      // Persistir estado para retomar el modal al volver de WhatsApp (PWA iOS).
+      saveGuestConfirmResume({
+        reservationId: reservation.id,
+        step: 1,
+        whatsappOpened: true,
+      });
       openWhatsApp({ phone: phoneDigits, message: previewMessage });
       setWhatsappOpened(true);
     } catch (openError) {
@@ -186,6 +203,11 @@ export default function GuestReservationConfirmModal({
     }
 
     setStep(2);
+    saveGuestConfirmResume({
+      reservationId: reservation.id,
+      step: 2,
+      whatsappOpened: true,
+    });
   };
 
   const handleConfirmWithDeposit = async () => {
@@ -216,6 +238,7 @@ export default function GuestReservationConfirmModal({
           notes: notes.trim() || undefined,
         },
       });
+      clearGuestConfirmResume();
       onSuccess?.(result);
       onClose?.();
     } catch (submitError) {
@@ -239,6 +262,7 @@ export default function GuestReservationConfirmModal({
         id: reservation.id,
         payload: { cancellationReason: 'Solicitud de clase puntual rechazada' },
       });
+      clearGuestConfirmResume();
       onSuccess?.({ rejected: true });
       onClose?.();
     } catch (rejectError) {

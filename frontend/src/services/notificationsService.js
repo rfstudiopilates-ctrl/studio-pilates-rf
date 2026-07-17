@@ -36,6 +36,11 @@ export const notificationsApi = {
     return data.data;
   },
 
+  clearInbox: async () => {
+    const { data } = await api.post('/notifications/inbox/clear');
+    return data.data;
+  },
+
   getPushStatus: async () => {
     const { data } = await api.get('/notifications/push/status');
     return data.data;

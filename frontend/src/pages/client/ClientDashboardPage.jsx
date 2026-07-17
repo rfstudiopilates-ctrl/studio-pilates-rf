@@ -258,7 +258,10 @@ export default function ClientDashboardPage() {
     <ClientLayout title={`Hola, ${firstName}`} subtitle="Tu resumen del estudio">
       <div className="mx-auto max-w-3xl space-y-4">
         <InstallPwaBanner />
-        <PushNotificationBanner />
+        <PushNotificationBanner
+          title="Activá avisos en este celular"
+          description="Así te enterás al instante cuando confirmen tu solicitud de turno, te cancelen una clase o haya un cambio de horario."
+        />
 
         <CompactPlanCard
           activePlan={activePlan}

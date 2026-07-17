@@ -303,9 +303,11 @@ export async function listInboxNotifications({
   recipientId,
   page = 1,
   limit = 30,
+  unreadOnly = true,
 }) {
   const offset = (page - 1) * limit;
   const params = [recipientType, Number(recipientId)];
+  const unreadClause = unreadOnly ? 'AND read_at IS NULL' : '';
 
   const [countRows] = await pool.query(
     `SELECT COUNT(*) AS total
@@ -313,7 +315,8 @@ export async function listInboxNotifications({
      WHERE recipient_type = ?
        AND recipient_id = ?
        AND channel = 'in_app'
-       AND status = 'sent'`,
+       AND status = 'sent'
+       ${unreadClause}`,
     params
   );
 
@@ -335,6 +338,7 @@ export async function listInboxNotifications({
        AND recipient_id = ?
        AND channel = 'in_app'
        AND status = 'sent'
+       ${unreadClause}
      ORDER BY created_at DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset]
@@ -394,6 +398,18 @@ export async function markAllInboxNotificationsRead({ recipientType, recipientId
   );
 
   return { updated: result.affectedRows || 0 };
+}
+
+export async function clearInboxNotifications({ recipientType, recipientId }) {
+  const [result] = await pool.query(
+    `DELETE FROM notification_logs
+     WHERE recipient_type = ?
+       AND recipient_id = ?
+       AND channel = 'in_app'`,
+    [recipientType, Number(recipientId)]
+  );
+
+  return { deleted: result.affectedRows || 0 };
 }
 
 export async function getClientById(clientId) {

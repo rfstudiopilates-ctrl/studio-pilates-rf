@@ -74,6 +74,15 @@ export async function markAllAsRead(req, res, next) {
   }
 }
 
+export async function clearInbox(req, res, next) {
+  try {
+    const data = await notificationsService.clearInbox(req.auth.role, req.auth.sub);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function sendTestPush(req, res, next) {
   try {
     const data = await notificationsService.sendTestPush(req.auth.role, req.auth.sub);

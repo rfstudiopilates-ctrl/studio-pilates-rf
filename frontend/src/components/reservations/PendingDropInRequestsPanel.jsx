@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import GuestReservationConfirmModal from './GuestReservationConfirmModal';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
@@ -6,10 +6,15 @@ import NavIcon from '../ui/NavIcon';
 import { BOOKING_TYPE_LABELS } from '../../constants/reservations';
 import { useReservationsList } from '../../hooks/useReservations';
 import { addDaysToDate, formatDateDisplay, getTodayInArgentina } from '../../lib/dates';
+import {
+  clearGuestConfirmResume,
+  readGuestConfirmResume,
+} from '../../lib/guestConfirmResume';
 
 export default function PendingDropInRequestsPanel() {
   const today = getTodayInArgentina();
   const [selectedReservation, setSelectedReservation] = useState(null);
+  const [resumeState, setResumeState] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
   const params = useMemo(
@@ -26,6 +31,51 @@ export default function PendingDropInRequestsPanel() {
 
   const { data, isLoading, isError, isFetching } = useReservationsList(params);
   const items = data?.items || [];
+
+  // Retomar el modal al volver de WhatsApp (PWA iOS no debe perder el flujo).
+  useEffect(() => {
+    const saved = readGuestConfirmResume();
+    if (!saved || selectedReservation) {
+      return;
+    }
+
+    const match = items.find((item) => Number(item.id) === Number(saved.reservationId));
+    if (!match) {
+      return;
+    }
+
+    setResumeState(saved);
+    setSelectedReservation(match);
+  }, [items, selectedReservation]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+
+      const saved = readGuestConfirmResume();
+      if (!saved || selectedReservation) {
+        return;
+      }
+
+      const match = items.find((item) => Number(item.id) === Number(saved.reservationId));
+      if (!match) {
+        return;
+      }
+
+      setResumeState(saved);
+      setSelectedReservation(match);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('pageshow', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('pageshow', handleVisibility);
+    };
+  }, [items, selectedReservation]);
 
   return (
     <div className="space-y-5">
@@ -86,6 +136,7 @@ export default function PendingDropInRequestsPanel() {
                 className="mt-4 w-full"
                 onClick={() => {
                   setFeedback(null);
+                  setResumeState(null);
                   setSelectedReservation(reservation);
                 }}
               >
@@ -99,8 +150,15 @@ export default function PendingDropInRequestsPanel() {
       <GuestReservationConfirmModal
         open={Boolean(selectedReservation)}
         reservation={selectedReservation}
-        onClose={() => setSelectedReservation(null)}
+        resumeState={resumeState}
+        onClose={() => {
+          clearGuestConfirmResume();
+          setResumeState(null);
+          setSelectedReservation(null);
+        }}
         onSuccess={(result) => {
+          clearGuestConfirmResume();
+          setResumeState(null);
           setSelectedReservation(null);
 
           if (result?.rejected) {

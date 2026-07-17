@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import NavIcon from '../ui/NavIcon';
 import {
+  useClearNotificationsInbox,
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
   useNotificationsInbox,
@@ -66,6 +67,8 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef(null);
   const panelRef = useRef(null);
+  const viewedWhileOpenRef = useRef(false);
+  const unreadCountRef = useRef(0);
   const navigate = useNavigate();
 
   const { data: unreadData } = useUnreadNotificationsCount();
@@ -74,9 +77,34 @@ export default function NotificationBell() {
   });
   const markRead = useMarkNotificationRead();
   const markAllRead = useMarkAllNotificationsRead();
+  const clearInbox = useClearNotificationsInbox();
 
   const unreadCount = Number(unreadData?.unreadCount || 0);
   const items = inboxData?.items || [];
+  unreadCountRef.current = unreadCount;
+
+  useEffect(() => {
+    if (open && (items.length > 0 || unreadCount > 0)) {
+      viewedWhileOpenRef.current = true;
+    }
+  }, [open, items.length, unreadCount]);
+
+  const closePanel = useCallback(
+    async ({ markSeen = true } = {}) => {
+      setOpen(false);
+
+      if (markSeen && viewedWhileOpenRef.current && unreadCountRef.current > 0) {
+        try {
+          await markAllRead.mutateAsync();
+        } catch {
+          // El badge se actualizará en el próximo fetch.
+        }
+      }
+
+      viewedWhileOpenRef.current = false;
+    },
+    [markAllRead]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -91,12 +119,12 @@ export default function NotificationBell() {
       ) {
         return;
       }
-      setOpen(false);
+      closePanel();
     };
 
     const handleEscape = (event) => {
       if (event.key === 'Escape') {
-        setOpen(false);
+        closePanel();
       }
     };
 
@@ -109,7 +137,7 @@ export default function NotificationBell() {
       document.removeEventListener('touchstart', handlePointerDown);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [open]);
+  }, [open, closePanel]);
 
   const handleOpenItem = async (item) => {
     if (!item.isRead) {
@@ -120,12 +148,24 @@ export default function NotificationBell() {
       }
     }
 
-    setOpen(false);
+    await closePanel({ markSeen: false });
     const path = toAppPath(item.payload?.url);
     if (path) {
       navigate(path);
     }
   };
+
+  const handleClear = async () => {
+    try {
+      await clearInbox.mutateAsync();
+      setOpen(false);
+      viewedWhileOpenRef.current = false;
+    } catch {
+      // Se refleja al recargar.
+    }
+  };
+
+  const isBusy = markAllRead.isPending || clearInbox.isPending;
 
   const panel = open
     ? createPortal(
@@ -139,17 +179,17 @@ export default function NotificationBell() {
             <div className="min-w-0">
               <p className="text-sm font-semibold text-text">Notificaciones</p>
               <p className="text-xs text-text-muted">
-                {unreadCount > 0 ? `${unreadCount} sin leer` : 'Estás al día'}
+                {items.length > 0 ? `${items.length} sin leer` : 'Estás al día'}
               </p>
             </div>
-            {unreadCount > 0 ? (
+            {items.length > 0 ? (
               <button
                 type="button"
-                onClick={() => markAllRead.mutate()}
-                disabled={markAllRead.isPending}
+                onClick={handleClear}
+                disabled={isBusy}
                 className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-text hover:bg-surface-muted disabled:opacity-60"
               >
-                Marcar leídas
+                {clearInbox.isPending ? 'Limpiando…' : 'Limpiar'}
               </button>
             ) : null}
           </div>
@@ -163,7 +203,7 @@ export default function NotificationBell() {
 
             {!isLoading && !isFetching && items.length === 0 ? (
               <p className="px-4 py-8 text-center text-sm text-text-muted">
-                No tenés notificaciones todavía.
+                No tenés notificaciones nuevas.
               </p>
             ) : null}
 
@@ -172,21 +212,13 @@ export default function NotificationBell() {
                 key={item.id}
                 type="button"
                 onClick={() => handleOpenItem(item)}
-                className={`flex w-full flex-col gap-1 border-b border-border px-4 py-3 text-left transition last:border-b-0 hover:bg-surface-muted ${
-                  item.isRead ? 'bg-white' : 'bg-brand-50'
-                }`}
+                className="flex w-full flex-col gap-1 border-b border-border bg-brand-50 px-4 py-3 text-left transition last:border-b-0 hover:bg-surface-muted"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p
-                    className={`min-w-0 flex-1 break-words text-sm leading-snug ${
-                      item.isRead ? 'font-medium text-text' : 'font-semibold text-text'
-                    }`}
-                  >
+                  <p className="min-w-0 flex-1 break-words text-sm font-semibold leading-snug text-text">
                     {item.title}
                   </p>
-                  {!item.isRead ? (
-                    <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-300" />
-                  ) : null}
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-300" />
                 </div>
                 <p className="break-words text-xs leading-relaxed text-text-muted">
                   {item.body}
@@ -207,7 +239,13 @@ export default function NotificationBell() {
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (open) {
+            closePanel();
+          } else {
+            setOpen(true);
+          }
+        }}
         className="relative rounded-xl border border-border p-2 text-text-muted transition hover:bg-surface-muted hover:text-text"
         aria-label={
           unreadCount > 0
