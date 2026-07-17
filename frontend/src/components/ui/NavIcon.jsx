@@ -122,6 +122,13 @@ const icons = {
   plus: (
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
   ),
+  refresh: (
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      d="M20 6v5h-5M4 18v-5h5m9.2-4A7 7 0 0 0 6.8 7.6L4 11m16 2-2.8 3.4A7 7 0 0 1 5.8 15"
+    />
+  ),
   edit: (
     <path
       strokeLinecap="round"

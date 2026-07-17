@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import OfflineBanner from '../components/pwa/OfflineBanner';
+import PwaReloadButton from '../components/pwa/PwaReloadButton';
 import PwaUpdateBanner from '../components/pwa/PwaUpdateBanner';
 import { setupPwa } from '../lib/pwa';
 
@@ -13,6 +14,7 @@ export default function PwaBootstrap({ children }) {
       <PwaUpdateBanner />
       <OfflineBanner />
       {children}
+      <PwaReloadButton />
     </>
   );
 }
