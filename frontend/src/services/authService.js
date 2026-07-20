@@ -31,6 +31,14 @@ export const authApi = {
     return data.data.user;
   },
 
+  changePassword: async ({ currentPassword, newPassword }) => {
+    const { data } = await api.post('/auth/change-password', {
+      currentPassword,
+      newPassword,
+    });
+    return data.data;
+  },
+
   markPwaInstalled: async () => {
     const { data } = await api.post('/auth/pwa-installed');
     return data.data;
