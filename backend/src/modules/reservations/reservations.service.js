@@ -653,6 +653,7 @@ export async function cancelReservation({
   clientId = null,
   silent = false,
   skipRecoveryCredit = false,
+  forceReturnQuota = false,
 }) {
   const settings = await getSettings();
   const connection = await pool.getConnection();
@@ -708,11 +709,12 @@ export async function cancelReservation({
     const wasConfirmed = reservation.status === 'confirmed';
     const wasHoldingSeat = ACTIVE_RESERVATION_STATUSES.includes(reservation.status);
     const timelyCancel =
+      forceReturnQuota ||
       isDropInPending ||
       canCancelClass(classItem.classDate, classItem.startTime, settings.cancellationHours);
 
     // Cancelación tardía (solo admin llega acá): la clase se pierde del cupo (no_show).
-    // Cancelación a tiempo: status cancelled → el cupo vuelve al abono para catch-up.
+    // Cancelación a tiempo / cierre de horario del estudio: status cancelled → cupo vuelve.
     const nextStatus =
       wasConfirmed && !timelyCancel && reservation.consumesPlan ? 'no_show' : 'cancelled';
 

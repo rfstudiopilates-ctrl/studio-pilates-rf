@@ -62,3 +62,33 @@ export async function updateClass(req, res, next) {
     next(error);
   }
 }
+
+export async function listScheduleCleanupCandidates(req, res, next) {
+  try {
+    const data = await classesService.listScheduleCleanupCandidates();
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function previewCancelFutureBySchedule(req, res, next) {
+  try {
+    const data = await classesService.previewCancelFutureBySchedule(req.validatedQuery);
+    res.json({ success: true, data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function cancelFutureBySchedule(req, res, next) {
+  try {
+    const result = await classesService.cancelFutureClassesBySchedule({
+      ...req.validatedBody,
+      adminId: req.auth.sub,
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}

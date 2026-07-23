@@ -31,6 +31,27 @@ export const updateClassSchema = z
     message: 'Debés enviar al menos un campo para actualizar',
   });
 
+const dayOfWeekSchema = z.coerce.number().int().min(1).max(7);
+const timeSchema = z
+  .string()
+  .regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Hora inválida')
+  .transform((value) => value.slice(0, 5));
+
+export const cancelFutureByScheduleQuerySchema = z.object({
+  dayOfWeek: dayOfWeekSchema,
+  startTime: timeSchema,
+});
+
+export const cancelFutureByScheduleBodySchema = z.object({
+  dayOfWeek: dayOfWeekSchema,
+  startTime: timeSchema,
+  confirm: z
+    .boolean()
+    .refine((value) => value === true, {
+      message: 'Debés confirmar la cancelación masiva',
+    }),
+});
+
 export function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);

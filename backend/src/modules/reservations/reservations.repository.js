@@ -697,17 +697,83 @@ export async function listActiveRecurringReservations() {
   return rows.map(mapRecurringRow);
 }
 
-export async function getRecurringOccupancyByTemplate() {
-  const [rows] = await pool.query(
-    `SELECT
-       rr.schedule_template_id AS scheduleTemplateId,
-       COUNT(*) AS occupied,
-       GROUP_CONCAT(c.full_name ORDER BY c.full_name SEPARATOR '||') AS client_names
+/** Fijos activos/pausados de un día + hora (incluye plantillas viejas del mismo slot). */
+export async function listActiveRecurringByDayTime(dayOfWeek, startTime, connection = pool) {
+  const time = String(startTime).slice(0, 5);
+  const [rows] = await connection.query(
+    `SELECT rr.*, c.full_name AS client_name
      FROM recurring_reservations rr
      INNER JOIN clients c ON c.id = rr.client_id
-     WHERE rr.status = 'active'
+     WHERE rr.day_of_week = ?
+       AND TIME_FORMAT(rr.start_time, '%H:%i') = ?
+       AND rr.status IN ('active', 'paused')
        AND c.deleted_at IS NULL
-     GROUP BY rr.schedule_template_id`
+     ORDER BY c.full_name ASC`,
+    [dayOfWeek, time]
+  );
+
+  return rows.map(mapRecurringRow);
+}
+
+/** Agrupa fijos activos/pausados cuyo día+hora ya no tiene plantilla activa. */
+export async function listOrphanActiveRecurringByDayTime(connection = pool) {
+  const [rows] = await connection.query(
+    `SELECT
+       rr.day_of_week AS day_of_week,
+       TIME_FORMAT(rr.start_time, '%H:%i') AS start_time,
+       COUNT(*) AS recurring_count
+     FROM recurring_reservations rr
+     INNER JOIN clients c ON c.id = rr.client_id
+     WHERE rr.status IN ('active', 'paused')
+       AND c.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1
+         FROM schedule_templates st
+         WHERE st.is_active = 1
+           AND st.day_of_week = rr.day_of_week
+           AND TIME_FORMAT(st.start_time, '%H:%i') = TIME_FORMAT(rr.start_time, '%H:%i')
+       )
+     GROUP BY rr.day_of_week, TIME_FORMAT(rr.start_time, '%H:%i')
+     ORDER BY rr.day_of_week ASC, start_time ASC`
+  );
+
+  return rows.map((row) => ({
+    dayOfWeek: Number(row.day_of_week),
+    startTime: row.start_time,
+    recurringCount: Number(row.recurring_count || 0),
+  }));
+}
+
+export async function listActiveReservationsByClassId(classId, connection = pool) {
+  const [rows] = await connection.query(
+    `${reservationSelect}
+     WHERE r.generated_class_id = ?
+       AND r.status IN ('pending', 'confirmed')
+     ORDER BY r.created_at ASC`,
+    [classId]
+  );
+
+  return rows.map(mapReservationRow);
+}
+
+export async function getRecurringOccupancyByTemplate() {
+  // Cuenta por día + hora (no solo por id de plantilla): si hubo recreación de
+  // schedule_templates, varios fijos pueden compartir Martes 16:00 con IDs distintos.
+  const [rows] = await pool.query(
+    `SELECT
+       st.id AS scheduleTemplateId,
+       COUNT(c.id) AS occupied,
+       GROUP_CONCAT(c.full_name ORDER BY c.full_name SEPARATOR '||') AS client_names
+     FROM schedule_templates st
+     LEFT JOIN recurring_reservations rr
+       ON rr.day_of_week = st.day_of_week
+      AND TIME_FORMAT(rr.start_time, '%H:%i') = TIME_FORMAT(st.start_time, '%H:%i')
+      AND rr.status = 'active'
+     LEFT JOIN clients c
+       ON c.id = rr.client_id
+      AND c.deleted_at IS NULL
+     WHERE st.is_active = 1
+     GROUP BY st.id`
   );
 
   const occupancy = {};
@@ -715,7 +781,7 @@ export async function getRecurringOccupancyByTemplate() {
   for (const row of rows) {
     occupancy[row.scheduleTemplateId] = {
       occupied: Number(row.occupied || 0),
-      clients: row.client_names ? String(row.client_names).split('||') : [],
+      clients: row.client_names ? String(row.client_names).split('||').filter(Boolean) : [],
     };
   }
 
@@ -725,15 +791,96 @@ export async function getRecurringOccupancyByTemplate() {
 export async function countOccupyingRecurringByTemplate(scheduleTemplateId, connection = pool) {
   const [rows] = await connection.query(
     `SELECT COUNT(*) AS total
-     FROM recurring_reservations rr
-     INNER JOIN clients c ON c.id = rr.client_id
-     WHERE rr.schedule_template_id = ?
-       AND rr.status = 'active'
-       AND c.deleted_at IS NULL`,
+     FROM schedule_templates st
+     INNER JOIN recurring_reservations rr
+       ON rr.day_of_week = st.day_of_week
+      AND TIME_FORMAT(rr.start_time, '%H:%i') = TIME_FORMAT(st.start_time, '%H:%i')
+      AND rr.status = 'active'
+     INNER JOIN clients c
+       ON c.id = rr.client_id
+      AND c.deleted_at IS NULL
+     WHERE st.id = ?`,
     [scheduleTemplateId]
   );
 
   return Number(rows[0]?.total || 0);
+}
+
+/**
+ * Realinea fijos activos/pausados a la plantilla activa del mismo día/hora.
+ * Evita cupos “fantasma” cuando se regeneró la grilla de horarios.
+ */
+export async function relinkRecurringToActiveTemplates(connection = pool) {
+  const [rows] = await connection.query(
+    `SELECT
+       rr.id AS recurringId,
+       rr.client_id AS clientId,
+       rr.schedule_template_id AS currentTemplateId,
+       st.id AS targetTemplateId
+     FROM recurring_reservations rr
+     INNER JOIN schedule_templates st
+       ON st.day_of_week = rr.day_of_week
+      AND TIME_FORMAT(st.start_time, '%H:%i') = TIME_FORMAT(rr.start_time, '%H:%i')
+      AND st.is_active = 1
+     LEFT JOIN schedule_templates current_st
+       ON current_st.id = rr.schedule_template_id
+     WHERE rr.status IN ('active', 'paused')
+       AND (
+         rr.schedule_template_id IS NULL
+         OR current_st.id IS NULL
+         OR current_st.is_active = 0
+         OR rr.schedule_template_id <> st.id
+       )`
+  );
+
+  let relinked = 0;
+
+  for (const row of rows) {
+    const recurringId = Number(row.recurringId);
+    const clientId = Number(row.clientId);
+    const targetTemplateId = Number(row.targetTemplateId);
+
+    const [existingRows] = await connection.query(
+      `SELECT id, status
+       FROM recurring_reservations
+       WHERE client_id = ?
+         AND schedule_template_id = ?
+         AND id <> ?
+       LIMIT 1`,
+      [clientId, targetTemplateId, recurringId]
+    );
+
+    const existing = existingRows[0];
+
+    if (existing) {
+      if (existing.status === 'cancelled') {
+        // Libera el UNIQUE: borra el cancelado viejo y apunta el fijo activo a la plantilla actual.
+        await connection.query('DELETE FROM recurring_reservations WHERE id = ?', [existing.id]);
+        await connection.query(
+          'UPDATE recurring_reservations SET schedule_template_id = ? WHERE id = ?',
+          [targetTemplateId, recurringId]
+        );
+        relinked += 1;
+      } else {
+        // Ya hay un fijo activo/pausado en la plantilla correcta: cerramos el desfasado.
+        await connection.query(
+          `UPDATE recurring_reservations
+           SET status = 'cancelled'
+           WHERE id = ?`,
+          [recurringId]
+        );
+      }
+      continue;
+    }
+
+    await connection.query(
+      'UPDATE recurring_reservations SET schedule_template_id = ? WHERE id = ?',
+      [targetTemplateId, recurringId]
+    );
+    relinked += 1;
+  }
+
+  return relinked;
 }
 
 /** IDs de fijos activos/pausados de clientes ya desactivados (para limpiar cupos). */

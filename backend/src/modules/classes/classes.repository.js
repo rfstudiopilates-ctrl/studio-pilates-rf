@@ -193,7 +193,7 @@ export async function syncBookedCountFromReservations(id, connection = pool) {
   return getClassById(id, connection);
 }
 
-export async function updateClass(id, updates) {
+export async function updateClass(id, updates, connection = pool) {
   const fields = [];
   const params = [];
 
@@ -208,15 +208,90 @@ export async function updateClass(id, updates) {
   }
 
   if (fields.length === 0) {
-    return getClassById(id);
+    return getClassById(id, connection);
   }
 
   params.push(id);
 
-  await pool.query(
+  await connection.query(
     `UPDATE generated_classes SET ${fields.join(', ')} WHERE id = ?`,
     params
   );
 
-  return getClassById(id);
+  return getClassById(id, connection);
+}
+
+/**
+ * Clases programadas futuras (o de hoy aún no iniciadas) para un día + hora.
+ * dayOfWeek: 1=Lunes … 7=Domingo (coincide con schedule_templates).
+ */
+export async function listFutureScheduledByDayTime({
+  dayOfWeek,
+  startTime,
+  fromDate,
+  fromTime,
+}) {
+  const time = String(startTime).slice(0, 5);
+  const [rows] = await pool.query(
+    `SELECT id, schedule_template_id, class_date, start_time, end_time,
+            capacity, booked_count, status, created_at, updated_at
+     FROM generated_classes
+     WHERE status = 'scheduled'
+       AND (WEEKDAY(class_date) + 1) = ?
+       AND TIME_FORMAT(start_time, '%H:%i') = ?
+       AND (
+         class_date > ?
+         OR (class_date = ? AND TIME_FORMAT(start_time, '%H:%i') >= ?)
+       )
+     ORDER BY class_date ASC, start_time ASC`,
+    [dayOfWeek, time, fromDate, fromDate, fromTime || '00:00']
+  );
+
+  return rows.map(mapClassRow);
+}
+
+/**
+ * Horarios (día+hora) con clases futuras programadas sin plantilla activa.
+ * Útil cuando se quitó el slot de Horarios pero las clases siguen en el calendario.
+ */
+export async function listOrphanFutureScheduleGroups({ fromDate, fromTime }) {
+  const [rows] = await pool.query(
+    `SELECT
+       (WEEKDAY(gc.class_date) + 1) AS day_of_week,
+       TIME_FORMAT(gc.start_time, '%H:%i') AS start_time,
+       COUNT(*) AS class_count,
+       COALESCE(SUM(
+         (SELECT COUNT(*)
+          FROM class_reservations r
+          WHERE r.generated_class_id = gc.id
+            AND r.status IN ('pending', 'confirmed'))
+       ), 0) AS active_reservations,
+       MIN(gc.class_date) AS first_class_date,
+       MAX(gc.class_date) AS last_class_date
+     FROM generated_classes gc
+     WHERE gc.status = 'scheduled'
+       AND (
+         gc.class_date > ?
+         OR (gc.class_date = ? AND TIME_FORMAT(gc.start_time, '%H:%i') >= ?)
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM schedule_templates st
+         WHERE st.is_active = 1
+           AND st.day_of_week = (WEEKDAY(gc.class_date) + 1)
+           AND TIME_FORMAT(st.start_time, '%H:%i') = TIME_FORMAT(gc.start_time, '%H:%i')
+       )
+     GROUP BY day_of_week, start_time
+     ORDER BY day_of_week ASC, start_time ASC`,
+    [fromDate, fromDate, fromTime || '00:00']
+  );
+
+  return rows.map((row) => ({
+    dayOfWeek: Number(row.day_of_week),
+    startTime: row.start_time,
+    classCount: Number(row.class_count || 0),
+    activeReservations: Number(row.active_reservations || 0),
+    firstClassDate: toDateString(row.first_class_date),
+    lastClassDate: toDateString(row.last_class_date),
+  }));
 }

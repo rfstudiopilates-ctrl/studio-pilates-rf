@@ -3,7 +3,7 @@ import { generateClasses } from '../classes/classes.generation.js';
 import { DAY_OF_WEEK_ORDER } from './schedules.constants.js';
 import { createAppError } from '../../utils/AppError.js';
 import { getSettings } from '../settings/settings.repository.js';
-import { getRecurringOccupancyByTemplate } from '../reservations/reservations.repository.js';
+import { getRecurringOccupancyByTemplate, relinkRecurringToActiveTemplates } from '../reservations/reservations.repository.js';
 import { cleanupOrphanRecurringForDeletedClients } from '../reservations/reservations.service.js';
 
 function enrichSlotsWithFixedOccupancy(slots, settings, occupancy) {
@@ -26,8 +26,9 @@ function enrichSlotsWithFixedOccupancy(slots, settings, occupancy) {
 }
 
 export async function getWeeklySchedule() {
-  // Limpia fijos de clientes desactivados que seguían ocupando cupo.
+  // Limpia fijos de clientes desactivados y realinea IDs de plantilla desfasados.
   await cleanupOrphanRecurringForDeletedClients();
+  await relinkRecurringToActiveTemplates();
 
   const [slots, settings, occupancy] = await Promise.all([
     schedulesRepository.listScheduleTemplates(),
