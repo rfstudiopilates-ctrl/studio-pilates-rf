@@ -66,6 +66,11 @@ export const reservationsApi = {
     return data.data.recurring;
   },
 
+  listAllRecurring: async (params) => {
+    const { data } = await api.get('/reservations/recurring', { params });
+    return data.data.recurring;
+  },
+
   createRecurring: async (payload) => {
     const { data } = await api.post('/reservations/recurring', payload);
     return data.data;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import AdminLayout from '../../../components/admin/AdminLayout';
 import ClassesWeekPanel from '../../../components/classes/ClassesWeekPanel';
+import FixedSchedulesOverviewPanel from '../../../components/classes/FixedSchedulesOverviewPanel';
 import ScheduleChangesPanel from '../../../components/classes/ScheduleChangesPanel';
 import SchedulesGridPanel from '../../../components/classes/SchedulesGridPanel';
 import PendingDropInRequestsPanel from '../../../components/reservations/PendingDropInRequestsPanel';
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'clases', label: 'Clases', icon: 'classes' },
   { id: 'solicitudes', label: 'Solicitudes', icon: 'bell' },
   { id: 'horarios', label: 'Horarios', icon: 'schedule' },
+  { id: 'fijos', label: 'Fijos', icon: 'users' },
   { id: 'cambios', label: 'Cambios', icon: 'swap' },
 ];
 
@@ -47,7 +49,11 @@ export default function ClassesHubPage() {
 
   const subtitle = useMemo(() => {
     if (activeTab === 'horarios') {
-      return 'Definí los horarios fijos que se repiten todas las semanas.';
+      return 'Definí los horarios de la grilla semanal que se repiten todas las semanas.';
+    }
+
+    if (activeTab === 'fijos') {
+      return 'Mirá qué cliente tiene cada horario fijo, por día, y pausalo o quitalo desde acá.';
     }
 
     if (activeTab === 'solicitudes') {
@@ -111,6 +117,7 @@ export default function ClassesHubPage() {
       <div className="mt-6">
         {activeTab === 'clases' ? <ClassesWeekPanel /> : null}
         {activeTab === 'horarios' ? <SchedulesGridPanel /> : null}
+        {activeTab === 'fijos' ? <FixedSchedulesOverviewPanel /> : null}
         {activeTab === 'solicitudes' ? <PendingDropInRequestsPanel /> : null}
         {activeTab === 'cambios' ? <ScheduleChangesPanel /> : null}
       </div>

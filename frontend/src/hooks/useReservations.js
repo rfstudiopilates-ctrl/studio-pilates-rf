@@ -143,6 +143,14 @@ export function useClientRecurring(clientId) {
   });
 }
 
+export function useAllRecurring(params = {}) {
+  return useQuery({
+    queryKey: [...RESERVATIONS_KEY, 'recurring', 'all', params],
+    queryFn: () => reservationsApi.listAllRecurring(params),
+    placeholderData: (previousData) => previousData,
+  });
+}
+
 export function useCreateRecurring() {
   const queryClient = useQueryClient();
 
