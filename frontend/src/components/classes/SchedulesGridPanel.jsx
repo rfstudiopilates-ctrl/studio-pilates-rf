@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
+import ConfirmModal from '../ui/ConfirmModal';
 import { Input } from '../ui/Input';
 import Modal from '../ui/Modal';
 import NavIcon from '../ui/NavIcon';
 import { DAY_OF_WEEK_LABELS, DAY_OF_WEEK_ORDER } from '../../constants/schedules';
+import {
+  useCancelFutureBySchedule,
+  useScheduleCleanupCandidates,
+} from '../../hooks/useClasses';
 import { useAdminSettings } from '../../hooks/useSettings';
 import { useReplaceWeeklySchedule, useWeeklySchedule } from '../../hooks/useSchedules';
 import { getErrorMessage } from '../../lib/formErrors';
+import { classesApi } from '../../services/classesService';
 
 function createEmptyGrid() {
   return DAY_OF_WEEK_ORDER.reduce((acc, day) => {
@@ -52,12 +58,35 @@ function gridsEqual(a, b) {
   );
 }
 
+function findRemovedSlots(previousGrid, nextGrid) {
+  const removed = [];
+
+  for (const day of DAY_OF_WEEK_ORDER) {
+    const before = previousGrid[day] || [];
+    const after = new Set(nextGrid[day] || []);
+
+    for (const startTime of before) {
+      if (!after.has(startTime)) {
+        removed.push({ dayOfWeek: day, startTime });
+      }
+    }
+  }
+
+  return removed;
+}
+
 const QUICK_TIMES = ['08:00', '09:00', '10:00', '11:00', '17:00', '18:00', '19:00', '20:00'];
 
 export default function SchedulesGridPanel() {
   const { data: scheduleData, isLoading, isError } = useWeeklySchedule();
   const { data: settings } = useAdminSettings();
   const replaceSchedule = useReplaceWeeklySchedule();
+  const {
+    data: cleanupData,
+    isLoading: cleanupLoading,
+    refetch: refetchCleanup,
+  } = useScheduleCleanupCandidates();
+  const cancelFuture = useCancelFutureBySchedule();
 
   const [grid, setGrid] = useState(createEmptyGrid);
   const [savedGrid, setSavedGrid] = useState(createEmptyGrid);
@@ -66,6 +95,10 @@ export default function SchedulesGridPanel() {
   const [modalTime, setModalTime] = useState('09:00');
   const [copyFromDay, setCopyFromDay] = useState(1);
   const [feedback, setFeedback] = useState(null);
+  const [cancelTarget, setCancelTarget] = useState(null);
+  const [cancelPreview, setCancelPreview] = useState(null);
+  const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
+  const [pendingRemovedSlots, setPendingRemovedSlots] = useState([]);
 
   useEffect(() => {
     if (scheduleData?.slots) {
@@ -74,6 +107,38 @@ export default function SchedulesGridPanel() {
       setSavedGrid(nextGrid);
     }
   }, [scheduleData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPreview() {
+      if (!cancelTarget) {
+        setCancelPreview(null);
+        return;
+      }
+
+      setCancelPreviewLoading(true);
+      try {
+        const preview = await classesApi.previewCancelFutureBySchedule(cancelTarget);
+        if (!cancelled) {
+          setCancelPreview(preview);
+        }
+      } catch {
+        if (!cancelled) {
+          setCancelPreview(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setCancelPreviewLoading(false);
+        }
+      }
+    }
+
+    loadPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [cancelTarget]);
 
   const totalSlots = useMemo(
     () => DAY_OF_WEEK_ORDER.reduce((sum, day) => sum + grid[day].length, 0),
@@ -84,6 +149,7 @@ export default function SchedulesGridPanel() {
   const durationMinutes = settings?.classDurationMinutes || 60;
   const capacity = settings?.maxClassCapacity || 6;
   const activeSlots = activeDay ? grid[activeDay] || [] : [];
+  const orphanItems = cleanupData?.items || [];
 
   function openDayModal(day) {
     setActiveDay(day);
@@ -182,8 +248,68 @@ export default function SchedulesGridPanel() {
     setFeedback({ type: 'success', message: 'Cambios descartados.' });
   }
 
+  function openCancelConfirm({ dayOfWeek, startTime }) {
+    setCancelTarget({ dayOfWeek, startTime: String(startTime).slice(0, 5) });
+  }
+
+  function closeCancelConfirm() {
+    if (cancelFuture.isPending) {
+      return;
+    }
+    setCancelTarget(null);
+    setCancelPreview(null);
+  }
+
+  async function handleConfirmCancelFuture() {
+    if (!cancelTarget) {
+      return;
+    }
+
+    try {
+      const result = await cancelFuture.mutateAsync({
+        dayOfWeek: cancelTarget.dayOfWeek,
+        startTime: cancelTarget.startTime,
+        confirm: true,
+      });
+
+      const remaining = pendingRemovedSlots.filter(
+        (slot) =>
+          !(
+            slot.dayOfWeek === cancelTarget.dayOfWeek &&
+            slot.startTime === cancelTarget.startTime
+          )
+      );
+      setPendingRemovedSlots(remaining);
+      setCancelTarget(null);
+      setCancelPreview(null);
+      await refetchCleanup();
+
+      const errorNote =
+        result.errors?.length > 0
+          ? ` (${result.errors.length} aviso${result.errors.length === 1 ? '' : 's'})`
+          : '';
+
+      setFeedback({
+        type: 'success',
+        message: result.empty
+          ? `No había clases futuras ni fijos pendientes para ${DAY_OF_WEEK_LABELS[cancelTarget.dayOfWeek]} ${cancelTarget.startTime}.`
+          : `Se cancelaron ${result.cancelledClasses} clase(s), ${result.cancelledReservations} reserva(s) y ${result.cancelledRecurring} fijo(s). Cupos devueltos: ${result.returnedQuota}.${errorNote}`,
+      });
+
+      if (remaining.length > 0) {
+        openCancelConfirm(remaining[0]);
+      }
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: getErrorMessage(error, 'No se pudieron cancelar las clases futuras.'),
+      });
+    }
+  }
+
   async function handleSave() {
     setFeedback(null);
+    const previousGrid = savedGrid;
 
     try {
       const result = await replaceSchedule.mutateAsync(
@@ -192,10 +318,24 @@ export default function SchedulesGridPanel() {
       const nextGrid = slotsToGrid(result.slots || gridToSlots(grid, { capacity, durationMinutes }));
       setGrid(nextGrid);
       setSavedGrid(nextGrid);
-      setFeedback({
-        type: 'success',
-        message: `Plantilla guardada. Se generaron ${result.generation?.created ?? 0} clases nuevas hacia adelante.`,
-      });
+
+      const removed = findRemovedSlots(previousGrid, nextGrid);
+      await refetchCleanup();
+
+      if (removed.length > 0) {
+        setPendingRemovedSlots(removed);
+        setFeedback({
+          type: 'success',
+          message: `Plantilla guardada. Se generaron ${result.generation?.created ?? 0} clases nuevas. Revisá si querés cancelar las clases futuras de los horarios quitados.`,
+        });
+        openCancelConfirm(removed[0]);
+      } else {
+        setPendingRemovedSlots([]);
+        setFeedback({
+          type: 'success',
+          message: `Plantilla guardada. Se generaron ${result.generation?.created ?? 0} clases nuevas hacia adelante.`,
+        });
+      }
     } catch (error) {
       setFeedback({
         type: 'error',
@@ -216,8 +356,8 @@ export default function SchedulesGridPanel() {
               <p className="text-base font-semibold text-text">Plantilla semanal fija</p>
               <p className="mt-1 max-w-2xl text-sm text-text-muted">
                 Configurá los horarios habituales del estudio. Se repiten todas las semanas
-                automáticamente. Si necesitás cancelar o ajustar una clase de un día puntual,
-                hacelo desde la tab <strong className="text-text">Clases</strong>.
+                automáticamente. Si dejás de dictar un horario, quitálo acá, guardá y cancelá
+                las clases futuras para devolver el cupo a los clientes.
               </p>
               <p className="mt-2 text-sm text-text-muted">
                 Duración: <strong className="text-text">{durationMinutes} min</strong>
@@ -259,6 +399,63 @@ export default function SchedulesGridPanel() {
           </div>
         ) : null}
       </section>
+
+      {!cleanupLoading && orphanItems.length > 0 ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-6">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+              <NavIcon name="bell" className="h-5 w-5 text-warning" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-semibold text-text">
+                Clases futuras de horarios que ya no están en la plantilla
+              </p>
+              <p className="mt-1 text-sm text-text-muted">
+                Estas clases siguen en el calendario. Cancelalas en bloque para liberar cupos y
+                cerrar los fijos asociados.
+              </p>
+
+              <ul className="mt-4 space-y-2">
+                {orphanItems.map((item) => (
+                  <li
+                    key={`${item.dayOfWeek}-${item.startTime}`}
+                    className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-text">
+                        {DAY_OF_WEEK_LABELS[item.dayOfWeek]} {item.startTime}
+                      </p>
+                      <p className="text-xs text-text-muted">
+                        {item.classCount} clase{item.classCount === 1 ? '' : 's'}
+                        {' · '}
+                        {item.activeReservations} reserva
+                        {item.activeReservations === 1 ? '' : 's'}
+                        {' · '}
+                        {item.recurringCount} fijo{item.recurringCount === 1 ? '' : 's'}
+                        {item.firstClassDate && item.lastClassDate
+                          ? ` · ${item.firstClassDate} → ${item.lastClassDate}`
+                          : null}
+                      </p>
+                    </div>
+                    <Button
+                      variant="danger"
+                      className="w-full sm:w-auto"
+                      onClick={() =>
+                        openCancelConfirm({
+                          dayOfWeek: item.dayOfWeek,
+                          startTime: item.startTime,
+                        })
+                      }
+                    >
+                      Cancelar futuras
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       {isError ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
@@ -501,6 +698,33 @@ export default function SchedulesGridPanel() {
           </div>
         ) : null}
       </Modal>
+
+      <ConfirmModal
+        open={Boolean(cancelTarget)}
+        onClose={closeCancelConfirm}
+        onConfirm={handleConfirmCancelFuture}
+        title={
+          cancelTarget
+            ? `Cancelar ${DAY_OF_WEEK_LABELS[cancelTarget.dayOfWeek]} ${cancelTarget.startTime}`
+            : 'Cancelar clases futuras'
+        }
+        message={
+          cancelPreviewLoading
+            ? 'Calculando impacto...'
+            : cancelPreview
+              ? `Se van a cancelar ${cancelPreview.classCount} clase(s) futura(s), ${cancelPreview.activeReservations} reserva(s) y ${cancelPreview.recurringCount} horario(s) fijo(s). A los clientes con reserva se les devolverá el cupo del abono.`
+              : 'Se cancelarán las clases futuras de este horario y se devolverá el cupo a quienes tengan reserva.'
+        }
+        confirmLabel="Cancelar clases y devolver cupos"
+        cancelLabel="Ahora no"
+        isLoading={cancelFuture.isPending}
+      >
+        {pendingRemovedSlots.length > 1 ? (
+          <p className="mt-3 text-xs text-text-muted">
+            Quedan {pendingRemovedSlots.length - 1} horario(s) más por revisar después de este.
+          </p>
+        ) : null}
+      </ConfirmModal>
     </div>
   );
 }

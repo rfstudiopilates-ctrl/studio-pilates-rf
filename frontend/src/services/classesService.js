@@ -30,4 +30,19 @@ export const classesApi = {
     const { data } = await api.patch(`/classes/${id}`, payload);
     return data.data.class;
   },
+
+  listScheduleCleanupCandidates: async () => {
+    const { data } = await api.get('/classes/schedule-cleanup-candidates');
+    return data.data;
+  },
+
+  previewCancelFutureBySchedule: async (params) => {
+    const { data } = await api.get('/classes/cancel-future-by-schedule/preview', { params });
+    return data.data;
+  },
+
+  cancelFutureBySchedule: async (payload) => {
+    const { data } = await api.post('/classes/cancel-future-by-schedule', payload);
+    return data.data;
+  },
 };
