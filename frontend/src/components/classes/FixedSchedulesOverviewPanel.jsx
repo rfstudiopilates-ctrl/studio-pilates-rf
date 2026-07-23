@@ -12,7 +12,16 @@ import {
 import { DAY_OF_WEEK_LABELS, DAY_OF_WEEK_ORDER } from '../../constants/schedules';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useAllRecurring, useUpdateRecurring } from '../../hooks/useReservations';
+import { useWeeklySchedule } from '../../hooks/useSchedules';
 import { getErrorMessage } from '../../lib/formErrors';
+
+function normalizeTime(value) {
+  if (!value) return '';
+  const text = String(value).trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return text.slice(0, 5);
+  return `${String(match[1]).padStart(2, '0')}:${match[2]}`;
+}
 
 function getInitials(name = '') {
   return name
@@ -35,10 +44,96 @@ function StatusBadge({ status }) {
   );
 }
 
+function RecurringCard({ item, isBusy, onStatusChange }) {
+  return (
+    <article className="rounded-2xl border border-border bg-surface-muted/30 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-text">
+            {getInitials(item.clientName) || '—'}
+          </div>
+          <div className="min-w-0">
+            <Link
+              to={`/admin/clientes/${item.clientId}?tab=reservations`}
+              className="block truncate font-semibold text-text hover:underline"
+            >
+              {item.clientName}
+            </Link>
+            <p className="mt-0.5 text-sm font-medium tabular-nums text-text">
+              {DAY_OF_WEEK_LABELS[item.dayOfWeek]} · {normalizeTime(item.startTime)}
+            </p>
+            {item.clientPhone ? (
+              <p className="mt-0.5 text-xs text-text-muted">{item.clientPhone}</p>
+            ) : null}
+          </div>
+        </div>
+        <StatusBadge status={item.status} />
+      </div>
+
+      {item.status === 'paused' ? (
+        <p className="mt-3 text-xs text-text-muted">
+          Pausado: las clases futuras de este turno están liberadas.
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {item.status === 'active' ? (
+          <Button
+            variant="secondary"
+            className="h-9 px-3 text-xs"
+            disabled={isBusy}
+            isLoading={isBusy}
+            onClick={() => onStatusChange(item, 'paused')}
+          >
+            Pausar
+          </Button>
+        ) : null}
+        {item.status === 'paused' ? (
+          <Button
+            variant="secondary"
+            className="h-9 px-3 text-xs"
+            disabled={isBusy}
+            isLoading={isBusy}
+            onClick={() => onStatusChange(item, 'active')}
+          >
+            Reanudar
+          </Button>
+        ) : null}
+        <Button
+          variant="ghost"
+          className="h-9 px-3 text-xs text-danger"
+          disabled={isBusy}
+          isLoading={isBusy}
+          onClick={() => {
+            if (
+              window.confirm(
+                `¿Quitar el horario fijo de ${item.clientName} (${DAY_OF_WEEK_LABELS[item.dayOfWeek]} ${normalizeTime(item.startTime)})? Se liberarán las reservas futuras.`
+              )
+            ) {
+              onStatusChange(item, 'cancelled');
+            }
+          }}
+        >
+          Quitar
+        </Button>
+        <Link
+          to={`/admin/clientes/${item.clientId}?tab=reservations`}
+          className="inline-flex h-9 items-center rounded-xl px-3 text-xs font-medium text-text-muted transition hover:bg-white hover:text-text"
+        >
+          Ver cliente
+        </Link>
+      </div>
+    </article>
+  );
+}
+
 export default function FixedSchedulesOverviewPanel() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [dayOfWeek, setDayOfWeek] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [sortBy, setSortBy] = useState('day');
+  const [sortOrder, setSortOrder] = useState('asc');
   const [feedback, setFeedback] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
@@ -49,12 +144,32 @@ export default function FixedSchedulesOverviewPanel() {
       search: debouncedSearch.trim() || undefined,
       status: status || undefined,
       dayOfWeek: dayOfWeek ? Number(dayOfWeek) : undefined,
+      startTime: startTime || undefined,
+      sortBy,
+      sortOrder,
     }),
-    [debouncedSearch, status, dayOfWeek]
+    [debouncedSearch, status, dayOfWeek, startTime, sortBy, sortOrder]
   );
 
   const { data: recurring = [], isLoading, isError, isFetching } = useAllRecurring(listParams);
+  const { data: weeklySchedule } = useWeeklySchedule();
   const updateRecurring = useUpdateRecurring();
+
+  const timeOptions = useMemo(() => {
+    const times = new Set();
+
+    for (const item of recurring) {
+      const time = normalizeTime(item.startTime);
+      if (time) times.add(time);
+    }
+
+    for (const slot of weeklySchedule?.slots || []) {
+      const time = normalizeTime(slot.startTime);
+      if (time) times.add(time);
+    }
+
+    return Array.from(times).sort();
+  }, [recurring, weeklySchedule]);
 
   const stats = useMemo(() => {
     const active = recurring.filter((item) => item.status === 'active').length;
@@ -62,27 +177,75 @@ export default function FixedSchedulesOverviewPanel() {
     return { total: recurring.length, active, paused };
   }, [recurring]);
 
-  const groupedByDay = useMemo(() => {
+  const groupedSections = useMemo(() => {
+    if (sortBy === 'time') {
+      const byTime = new Map();
+
+      for (const item of recurring) {
+        const time = normalizeTime(item.startTime) || 'Sin hora';
+        if (!byTime.has(time)) byTime.set(time, []);
+        byTime.get(time).push(item);
+      }
+
+      const times = Array.from(byTime.keys()).sort((a, b) =>
+        sortOrder === 'desc' ? b.localeCompare(a) : a.localeCompare(b)
+      );
+
+      return times.map((time) => ({
+        key: `time-${time}`,
+        title: time,
+        subtitle: `${byTime.get(time).length} alumno${byTime.get(time).length === 1 ? '' : 's'}`,
+        items: byTime.get(time),
+      }));
+    }
+
+    if (sortBy === 'client') {
+      return [
+        {
+          key: 'clients',
+          title: 'Por cliente',
+          subtitle: `${recurring.length} horario${recurring.length === 1 ? '' : 's'} fijo${recurring.length === 1 ? '' : 's'}`,
+          items: recurring,
+        },
+      ];
+    }
+
     const groups = DAY_OF_WEEK_ORDER.map((day) => ({
+      key: `day-${day}`,
+      title: DAY_OF_WEEK_LABELS[day],
       day,
-      label: DAY_OF_WEEK_LABELS[day],
       items: [],
     }));
-
     const byDay = new Map(groups.map((group) => [group.day, group]));
 
     for (const item of recurring) {
       const group = byDay.get(Number(item.dayOfWeek));
-      if (group) {
-        group.items.push(item);
-      }
+      if (group) group.items.push(item);
     }
 
-    return groups.filter((group) => group.items.length > 0);
-  }, [recurring]);
+    const ordered = sortOrder === 'desc' ? [...groups].reverse() : groups;
+
+    return ordered
+      .filter((group) => group.items.length > 0)
+      .map((group) => ({
+        key: group.key,
+        title: group.title,
+        subtitle: `${group.items.length} horario${group.items.length === 1 ? '' : 's'} fijo${group.items.length === 1 ? '' : 's'}`,
+        items: group.items,
+      }));
+  }, [recurring, sortBy, sortOrder]);
 
   function clearFeedbackLater() {
     window.setTimeout(() => setFeedback(null), 5000);
+  }
+
+  function resetFilters() {
+    setSearch('');
+    setStatus('');
+    setDayOfWeek('');
+    setStartTime('');
+    setSortBy('day');
+    setSortOrder('asc');
   }
 
   async function handleStatusChange(item, nextStatus) {
@@ -116,6 +279,10 @@ export default function FixedSchedulesOverviewPanel() {
     }
   }
 
+  const hasActiveFilters = Boolean(
+    search || status || dayOfWeek || startTime || sortBy !== 'day' || sortOrder !== 'asc'
+  );
+
   return (
     <div className="space-y-6">
       {feedback ? (
@@ -125,7 +292,7 @@ export default function FixedSchedulesOverviewPanel() {
       ) : null}
 
       <section className="rounded-2xl border border-border bg-white p-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100">
               <NavIcon name="users" className="h-5 w-5 text-text" />
@@ -141,13 +308,37 @@ export default function FixedSchedulesOverviewPanel() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:w-[34rem]">
-            <Input
-              label="Buscar cliente"
-              placeholder="Nombre, teléfono o usuario"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
+          {hasActiveFilters ? (
+            <Button type="button" variant="secondary" onClick={resetFilters}>
+              Restablecer filtros
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          <Input
+            label="Buscar cliente"
+            name="fixed-search"
+            placeholder="Nombre, teléfono o usuario..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className="w-full"
+          />
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Select
+              label="Horario"
+              value={startTime}
+              onChange={(event) => setStartTime(event.target.value)}
+            >
+              <option value="">Todos los horarios</option>
+              {timeOptions.map((time) => (
+                <option key={time} value={time}>
+                  {time}
+                </option>
+              ))}
+            </Select>
+
             <Select
               label="Estado"
               value={status}
@@ -157,17 +348,24 @@ export default function FixedSchedulesOverviewPanel() {
               <option value="active">Solo activos</option>
               <option value="paused">Solo pausados</option>
             </Select>
+
             <Select
-              label="Día"
-              value={dayOfWeek}
-              onChange={(event) => setDayOfWeek(event.target.value)}
+              label="Organizar por"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value)}
             >
-              <option value="">Todos los días</option>
-              {DAY_OF_WEEK_ORDER.map((day) => (
-                <option key={day} value={day}>
-                  {DAY_OF_WEEK_LABELS[day]}
-                </option>
-              ))}
+              <option value="day">Día de la semana</option>
+              <option value="time">Horario</option>
+              <option value="client">Nombre del cliente</option>
+            </Select>
+
+            <Select
+              label="Orden"
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value)}
+            >
+              <option value="asc">Ascendente</option>
+              <option value="desc">Descendente</option>
             </Select>
           </div>
         </div>
@@ -199,6 +397,36 @@ export default function FixedSchedulesOverviewPanel() {
             </button>
           ))}
         </div>
+
+        {timeOptions.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setStartTime('')}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                !startTime
+                  ? 'bg-brand-200 text-text'
+                  : 'border border-border bg-white text-text-muted hover:text-text'
+              }`}
+            >
+              Cualquier hora
+            </button>
+            {timeOptions.map((time) => (
+              <button
+                key={time}
+                type="button"
+                onClick={() => setStartTime(time)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold tabular-nums transition ${
+                  startTime === time
+                    ? 'bg-brand-200 text-text'
+                    : 'border border-border bg-white text-text-muted hover:text-text'
+                }`}
+              >
+                {time}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {isError ? (
@@ -209,7 +437,7 @@ export default function FixedSchedulesOverviewPanel() {
         <div className="rounded-2xl border border-border bg-white p-10 text-center text-sm text-text-muted">
           Cargando horarios fijos...
         </div>
-      ) : groupedByDay.length === 0 ? (
+      ) : groupedSections.length === 0 ? (
         <section className="rounded-2xl border border-dashed border-border bg-surface-muted/30 p-8 text-center">
           <p className="text-sm font-semibold text-text">No hay horarios fijos</p>
           <p className="mt-1 text-sm text-text-muted">
@@ -218,109 +446,27 @@ export default function FixedSchedulesOverviewPanel() {
         </section>
       ) : (
         <div className="space-y-4">
-          {groupedByDay.map((group) => (
+          {groupedSections.map((section) => (
             <section
-              key={group.day}
+              key={section.key}
               className="rounded-2xl border border-border bg-white p-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-5"
             >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-semibold text-text">{group.label}</h2>
-                  <p className="text-sm text-text-muted">
-                    {group.items.length} horario{group.items.length === 1 ? '' : 's'} fijo
-                    {group.items.length === 1 ? '' : 's'}
-                  </p>
+                  <h2 className="text-base font-semibold tabular-nums text-text">{section.title}</h2>
+                  <p className="text-sm text-text-muted">{section.subtitle}</p>
                 </div>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {group.items.map((item) => {
-                  const isBusy = busyId === item.id;
-
-                  return (
-                    <article
-                      key={item.id}
-                      className="rounded-2xl border border-border bg-surface-muted/30 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-text">
-                            {getInitials(item.clientName) || '—'}
-                          </div>
-                          <div className="min-w-0">
-                            <Link
-                              to={`/admin/clientes/${item.clientId}?tab=reservations`}
-                              className="block truncate font-semibold text-text hover:underline"
-                            >
-                              {item.clientName}
-                            </Link>
-                            <p className="mt-0.5 text-sm font-medium tabular-nums text-text">
-                              {item.startTime}
-                            </p>
-                            {item.clientPhone ? (
-                              <p className="mt-0.5 text-xs text-text-muted">{item.clientPhone}</p>
-                            ) : null}
-                          </div>
-                        </div>
-                        <StatusBadge status={item.status} />
-                      </div>
-
-                      {item.status === 'paused' ? (
-                        <p className="mt-3 text-xs text-text-muted">
-                          Pausado: las clases futuras de este turno están liberadas.
-                        </p>
-                      ) : null}
-
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {item.status === 'active' ? (
-                          <Button
-                            variant="secondary"
-                            className="h-9 px-3 text-xs"
-                            disabled={isBusy}
-                            isLoading={isBusy}
-                            onClick={() => handleStatusChange(item, 'paused')}
-                          >
-                            Pausar
-                          </Button>
-                        ) : null}
-                        {item.status === 'paused' ? (
-                          <Button
-                            variant="secondary"
-                            className="h-9 px-3 text-xs"
-                            disabled={isBusy}
-                            isLoading={isBusy}
-                            onClick={() => handleStatusChange(item, 'active')}
-                          >
-                            Reanudar
-                          </Button>
-                        ) : null}
-                        <Button
-                          variant="ghost"
-                          className="h-9 px-3 text-xs text-danger"
-                          disabled={isBusy}
-                          isLoading={isBusy}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `¿Quitar el horario fijo de ${item.clientName} (${DAY_OF_WEEK_LABELS[item.dayOfWeek]} ${item.startTime})? Se liberarán las reservas futuras.`
-                              )
-                            ) {
-                              handleStatusChange(item, 'cancelled');
-                            }
-                          }}
-                        >
-                          Quitar
-                        </Button>
-                        <Link
-                          to={`/admin/clientes/${item.clientId}?tab=reservations`}
-                          className="inline-flex h-9 items-center rounded-xl px-3 text-xs font-medium text-text-muted transition hover:bg-white hover:text-text"
-                        >
-                          Ver cliente
-                        </Link>
-                      </div>
-                    </article>
-                  );
-                })}
+                {section.items.map((item) => (
+                  <RecurringCard
+                    key={item.id}
+                    item={item}
+                    isBusy={busyId === item.id}
+                    onStatusChange={handleStatusChange}
+                  />
+                ))}
               </div>
             </section>
           ))}

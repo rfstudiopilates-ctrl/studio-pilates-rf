@@ -50,6 +50,9 @@ export function useDeleteClient() {
     mutationFn: clientsApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: CLIENTS_KEY });
+      queryClient.invalidateQueries({ queryKey: ['reservations'] });
+      queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      queryClient.invalidateQueries({ queryKey: ['classes'] });
     },
   });
 }
