@@ -250,8 +250,14 @@ export default function ClientReservationsPage() {
     setWeekOffset(nextOffset === 1 ? 1 : 0);
   }
 
+  // monthlyRemaining > 0 permite recuperar en otra semana aunque esta esté llena.
+  // El backend valida el cupo semanal por fecha al reservar.
+  const hasPlanQuotaLeft =
+    Boolean(activePlan) && Number(activePlan?.availability?.monthlyRemaining || 0) > 0;
   const canBookWithPlan =
-    Boolean(selectedCreditId) || Boolean(activePlan?.availability?.canBook);
+    Boolean(selectedCreditId) ||
+    Boolean(activePlan?.availability?.canBook) ||
+    hasPlanQuotaLeft;
   const canRequestWithoutPlan = !activePlan && recoveryCredits.length === 0;
   const canBook = canBookWithPlan || canRequestWithoutPlan;
 
@@ -259,6 +265,7 @@ export default function ClientReservationsPage() {
   const calendarMode = changingReservation ? 'change' : 'book';
   const canStillBookMore =
     Boolean(activePlan?.availability?.canBook) ||
+    hasPlanQuotaLeft ||
     recoveryCredits.length > 0 ||
     (canRequestWithoutPlan && !hasReservations);
   // Si ya tiene reservas y no le quedan cupos (ni créditos), ocultamos el alta.
@@ -364,7 +371,7 @@ export default function ClientReservationsPage() {
     try {
       const result = await cancelReservation.mutateAsync({ id: reservation.id });
       const bankMessage = result.returnedToPlan
-        ? ' La clase vuelve a tu cupo del plan para usarla en otra fecha.'
+        ? ' La clase vuelve a tu cupo: podés reservar otro horario hoy o en los días siguientes.'
         : '';
       setFeedback({
         type: 'success',
