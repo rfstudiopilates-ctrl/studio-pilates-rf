@@ -1212,6 +1212,10 @@ export async function listClientRecurring(clientId) {
   return reservationsRepository.listRecurringByClient(clientId);
 }
 
+export async function listAllRecurring(query = {}) {
+  return reservationsRepository.listAllRecurring(query);
+}
+
 export async function listMyRecurring(clientId) {
   const recurring = await reservationsRepository.listRecurringByClient(clientId);
   return recurring.filter((item) => item.status === 'active' || item.status === 'paused');

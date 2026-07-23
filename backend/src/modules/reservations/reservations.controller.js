@@ -216,6 +216,15 @@ export async function listClientRecurring(req, res, next) {
   }
 }
 
+export async function listAllRecurring(req, res, next) {
+  try {
+    const recurring = await reservationsService.listAllRecurring(req.validatedQuery || {});
+    res.json({ success: true, data: { recurring } });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function updateRecurring(req, res, next) {
   try {
     const result = await reservationsService.updateRecurringReservation(

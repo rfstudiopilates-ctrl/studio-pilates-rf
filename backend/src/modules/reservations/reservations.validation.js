@@ -76,6 +76,12 @@ export const updateRecurringSchema = z
     message: 'Debés enviar al menos un campo para actualizar',
   });
 
+export const listAllRecurringQuerySchema = z.object({
+  status: z.enum(['active', 'paused', 'cancelled']).optional(),
+  dayOfWeek: z.coerce.number().int().min(1).max(7).optional(),
+  search: z.string().trim().max(120).optional(),
+});
+
 export function validateBody(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body ?? {});

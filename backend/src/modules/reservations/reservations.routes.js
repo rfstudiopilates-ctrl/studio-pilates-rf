@@ -7,6 +7,7 @@ import {
   adminCreateReservationSchema,
   clientCreateReservationSchema,
   listReservationsQuerySchema,
+  listAllRecurringQuerySchema,
   updateRecurringSchema,
   validateBody,
   validateQuery,
@@ -79,6 +80,11 @@ router.patch(
 router.patch('/:id/clear-cancellation', reservationsController.clearCancelledReservation);
 
 router.post('/recurring', validateBody(createRecurringSchema), reservationsController.createRecurring);
+router.get(
+  '/recurring',
+  validateQuery(listAllRecurringQuerySchema),
+  reservationsController.listAllRecurring
+);
 router.get('/recurring/client/:clientId', reservationsController.listClientRecurring);
 router.patch('/recurring/:id', validateBody(updateRecurringSchema), reservationsController.updateRecurring);
 router.post('/recurring/process', reservationsController.processRecurring);

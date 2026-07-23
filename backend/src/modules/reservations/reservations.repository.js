@@ -59,6 +59,7 @@ function mapRecurringRow(row) {
     id: row.id,
     clientId: row.client_id,
     clientName: row.client_name,
+    clientPhone: row.client_phone || null,
     scheduleTemplateId: row.schedule_template_id,
     clientPlanId: row.client_plan_id,
     dayOfWeek: row.day_of_week,
@@ -521,12 +522,51 @@ export async function findRecurringById(id, connection = pool) {
 
 export async function listRecurringByClient(clientId) {
   const [rows] = await pool.query(
-    `SELECT rr.*, c.full_name AS client_name
+    `SELECT rr.*, c.full_name AS client_name, c.phone AS client_phone
      FROM recurring_reservations rr
      INNER JOIN clients c ON c.id = rr.client_id
      WHERE rr.client_id = ?
      ORDER BY rr.day_of_week ASC, rr.start_time ASC`,
     [clientId]
+  );
+
+  return rows.map(mapRecurringRow);
+}
+
+/** Listado admin de horarios fijos (todos los clientes). */
+export async function listAllRecurring({
+  status,
+  dayOfWeek,
+  search,
+} = {}) {
+  const conditions = ['c.deleted_at IS NULL'];
+  const params = [];
+
+  if (status) {
+    conditions.push('rr.status = ?');
+    params.push(status);
+  } else {
+    conditions.push(`rr.status IN ('active', 'paused')`);
+  }
+
+  if (dayOfWeek) {
+    conditions.push('rr.day_of_week = ?');
+    params.push(Number(dayOfWeek));
+  }
+
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    conditions.push('(c.full_name LIKE ? OR c.phone LIKE ? OR c.username LIKE ?)');
+    params.push(term, term, term);
+  }
+
+  const [rows] = await pool.query(
+    `SELECT rr.*, c.full_name AS client_name, c.phone AS client_phone
+     FROM recurring_reservations rr
+     INNER JOIN clients c ON c.id = rr.client_id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY rr.day_of_week ASC, rr.start_time ASC, c.full_name ASC`,
+    params
   );
 
   return rows.map(mapRecurringRow);
