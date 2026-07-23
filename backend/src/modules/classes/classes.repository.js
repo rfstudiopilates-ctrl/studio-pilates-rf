@@ -173,6 +173,26 @@ export async function adjustBookedCount(id, delta, connection) {
   void result;
 }
 
+/**
+ * Recalcula booked_count desde reservas activas (pending/confirmed).
+ * Evita que canceladas/no_show sigan ocupando cupo por desfase.
+ */
+export async function syncBookedCountFromReservations(id, connection = pool) {
+  await connection.query(
+    `UPDATE generated_classes gc
+     SET booked_count = (
+       SELECT COUNT(*)
+       FROM class_reservations r
+       WHERE r.generated_class_id = gc.id
+         AND r.status IN ('pending', 'confirmed')
+     )
+     WHERE gc.id = ?`,
+    [id]
+  );
+
+  return getClassById(id, connection);
+}
+
 export async function updateClass(id, updates) {
   const fields = [];
   const params = [];

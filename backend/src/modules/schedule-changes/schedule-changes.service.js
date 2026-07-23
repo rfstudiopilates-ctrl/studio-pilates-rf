@@ -68,14 +68,16 @@ async function reassignReservation({
   await classesRepository.getClassByIdForUpdate(fromClassId, connection);
   await validateTargetClassForChange(toClassId, connection);
 
-  await classesRepository.adjustBookedCount(fromClassId, -1, connection);
-  await classesRepository.adjustBookedCount(toClassId, 1, connection);
-
-  return reservationsRepository.updateReservation(
+  const updated = await reservationsRepository.updateReservation(
     reservation.id,
     { generatedClassId: toClassId },
     connection
   );
+
+  await classesRepository.syncBookedCountFromReservations(fromClassId, connection);
+  await classesRepository.syncBookedCountFromReservations(toClassId, connection);
+
+  return updated;
 }
 
 export async function createScheduleChangeRequest({

@@ -338,6 +338,7 @@ export async function createReservation({
     // pending y confirmed ocupan cupo (pending = hold hasta aprobar/rechazar).
     if (ACTIVE_RESERVATION_STATUSES.includes(finalStatus)) {
       await classesRepository.adjustBookedCount(generatedClassId, 1, connection);
+      await classesRepository.syncBookedCountFromReservations(generatedClassId, connection);
     }
 
     if (finalStatus === 'confirmed') {
@@ -730,7 +731,11 @@ export async function cancelReservation({
     );
 
     if (wasHoldingSeat) {
-      await classesRepository.adjustBookedCount(reservation.generatedClassId, -1, connection);
+      // Recalcula cupo real: cancelada/no_show no debe ocupar lugar.
+      await classesRepository.syncBookedCountFromReservations(
+        reservation.generatedClassId,
+        connection
+      );
 
       if (wasConfirmed && reservation.consumesPlan && reservation.clientPlanId) {
         await plansRepository.findClientPlanByIdForUpdate(reservation.clientPlanId, connection);
@@ -952,7 +957,10 @@ export async function getMyReservations(clientId, query) {
 
 export async function getClassReservations(classId) {
   await expireStalePendingReservations({ source: 'list' });
-  return reservationsRepository.listClassReservations(classId);
+  // Autocorrije cupos desfasados (p. ej. canceladas que seguían contando).
+  const classItem = await classesRepository.syncBookedCountFromReservations(classId);
+  const reservations = await reservationsRepository.listClassReservations(classId);
+  return { reservations, classItem };
 }
 
 export async function getClientReservations(clientId, query) {

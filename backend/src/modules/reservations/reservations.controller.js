@@ -170,8 +170,14 @@ export async function clearCancelledReservation(req, res, next) {
 
 export async function getClassReservations(req, res, next) {
   try {
-    const reservations = await reservationsService.getClassReservations(req.params.classId);
-    res.json({ success: true, data: { reservations } });
+    const result = await reservationsService.getClassReservations(req.params.classId);
+    res.json({
+      success: true,
+      data: {
+        reservations: result.reservations,
+        classItem: result.classItem,
+      },
+    });
   } catch (error) {
     next(error);
   }
