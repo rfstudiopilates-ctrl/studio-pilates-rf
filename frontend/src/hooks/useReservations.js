@@ -124,6 +124,17 @@ export function useCancelReservation() {
   });
 }
 
+export function useClearCancelledReservation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id) => reservationsApi.clearCancellation(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY });
+    },
+  });
+}
+
 export function useClientRecurring(clientId) {
   return useQuery({
     queryKey: [...RESERVATIONS_KEY, 'recurring', clientId],

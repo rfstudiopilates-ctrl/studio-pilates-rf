@@ -56,6 +56,11 @@ export const reservationsApi = {
     return data.data;
   },
 
+  clearCancellation: async (id) => {
+    const { data } = await api.patch(`/reservations/${id}/clear-cancellation`);
+    return data.data;
+  },
+
   listRecurringByClient: async (clientId) => {
     const { data } = await api.get(`/reservations/recurring/client/${clientId}`);
     return data.data.recurring;
