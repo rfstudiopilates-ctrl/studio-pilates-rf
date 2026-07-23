@@ -4,6 +4,7 @@ import { CLIENT_STATUS_LABELS } from './clients.constants.js';
 import * as clientsRepository from './clients.repository.js';
 import * as authRepository from '../auth/auth.repository.js';
 import { expireClientPlans } from '../plans/plans.repository.js';
+import * as reservationsService from '../reservations/reservations.service.js';
 
 function trackChanges(before, after, fields) {
   const changes = {};
@@ -218,6 +219,12 @@ export async function deleteClient(id, adminId) {
     description: `Cuenta de "${client.fullName}" desactivada (tenía actividad registrada).`,
     metadata: { username: client.username },
     performedById: adminId,
+  });
+
+  // Libera fijos y reservas futuras ANTES de soft-delete, para no dejar cupos fantasmas.
+  await reservationsService.releaseBookingsAfterClientDeactivate({
+    clientId: id,
+    adminId,
   });
 
   await clientsRepository.deleteClient(id);

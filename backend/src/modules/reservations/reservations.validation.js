@@ -79,7 +79,14 @@ export const updateRecurringSchema = z
 export const listAllRecurringQuerySchema = z.object({
   status: z.enum(['active', 'paused', 'cancelled']).optional(),
   dayOfWeek: z.coerce.number().int().min(1).max(7).optional(),
+  startTime: z
+    .string()
+    .trim()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Horario inválido')
+    .optional(),
   search: z.string().trim().max(120).optional(),
+  sortBy: z.enum(['day', 'time', 'client']).optional(),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
 });
 
 export function validateBody(schema) {

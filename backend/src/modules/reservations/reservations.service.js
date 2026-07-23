@@ -908,6 +908,124 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
   };
 }
 
+/**
+ * Al desactivar un cliente: libera fijos y reservas futuras para no bloquear cupos.
+ */
+export async function releaseBookingsAfterClientDeactivate({ clientId, adminId }) {
+  const today = getTodayInArgentina();
+  const pastCleanup = await completePastActiveReservations({ clientId });
+
+  const recurringList = await reservationsRepository.listRecurringByClient(clientId);
+  let cancelledRecurring = 0;
+  let cancelledReservations = 0;
+
+  for (const recurring of recurringList) {
+    if (recurring.status !== 'active' && recurring.status !== 'paused') {
+      continue;
+    }
+
+    await reservationsRepository.updateRecurringReservation(recurring.id, {
+      status: 'cancelled',
+      endDate: today,
+    });
+    cancelledRecurring += 1;
+
+    const futureFromRecurring =
+      await reservationsRepository.listActiveFutureReservationsByRecurring(recurring.id, today);
+
+    for (const reservation of futureFromRecurring) {
+      try {
+        await cancelReservation({
+          reservationId: reservation.id,
+          cancelledBy: 'admin',
+          cancellationReason: 'Cliente desactivado',
+          adminId,
+          silent: true,
+          skipRecoveryCredit: true,
+        });
+        cancelledReservations += 1;
+      } catch {
+        // Continuar.
+      }
+    }
+  }
+
+  const remainingActives =
+    await reservationsRepository.listActiveReservationsByClient(clientId);
+
+  for (const reservation of remainingActives) {
+    const classDate = toDateString(reservation.classDate) || String(reservation.classDate || '');
+
+    if (!classDate || classDate < today) {
+      continue;
+    }
+
+    try {
+      await cancelReservation({
+        reservationId: reservation.id,
+        cancelledBy: 'admin',
+        cancellationReason: 'Cliente desactivado',
+        adminId,
+        silent: true,
+        skipRecoveryCredit: true,
+      });
+      cancelledReservations += 1;
+    } catch {
+      // Continuar.
+    }
+  }
+
+  return {
+    ...pastCleanup,
+    cancelledRecurring,
+    cancelledReservations,
+  };
+}
+
+/**
+ * Autocorrije fijos huérfanos de clientes desactivados (datos previos al fix).
+ */
+export async function cleanupOrphanRecurringForDeletedClients({ adminId = null } = {}) {
+  const orphanIds = await reservationsRepository.listOrphanRecurringIdsForDeletedClients();
+  if (!orphanIds.length) {
+    return { cleaned: 0 };
+  }
+
+  const today = getTodayInArgentina();
+  let cleaned = 0;
+
+  for (const recurringId of orphanIds) {
+    const recurring = await reservationsRepository.findRecurringById(recurringId);
+    if (!recurring) continue;
+
+    await reservationsRepository.updateRecurringReservation(recurringId, {
+      status: 'cancelled',
+      endDate: today,
+    });
+    cleaned += 1;
+
+    const futureReservations =
+      await reservationsRepository.listActiveFutureReservationsByRecurring(recurringId, today);
+
+    for (const reservation of futureReservations) {
+      try {
+        await cancelReservation({
+          reservationId: reservation.id,
+          cancelledBy: 'admin',
+          cancellationReason: 'Cliente desactivado (limpieza de horario fijo)',
+          adminId,
+          silent: true,
+          skipRecoveryCredit: true,
+        });
+      } catch {
+        // Continuar.
+      }
+    }
+  }
+
+  return { cleaned };
+}
+
 export async function listReservations(query) {
   await expireStalePendingReservations({ source: 'list' });
   await completePastActiveReservations({ clientId: query.clientId || null });

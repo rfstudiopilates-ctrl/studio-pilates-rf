@@ -537,7 +537,10 @@ export async function listRecurringByClient(clientId) {
 export async function listAllRecurring({
   status,
   dayOfWeek,
+  startTime,
   search,
+  sortBy = 'day',
+  sortOrder = 'asc',
 } = {}) {
   const conditions = ['c.deleted_at IS NULL'];
   const params = [];
@@ -554,10 +557,24 @@ export async function listAllRecurring({
     params.push(Number(dayOfWeek));
   }
 
+  if (startTime) {
+    conditions.push(`TIME_FORMAT(rr.start_time, '%H:%i') = ?`);
+    params.push(String(startTime).slice(0, 5));
+  }
+
   if (search && String(search).trim()) {
     const term = `%${String(search).trim()}%`;
     conditions.push('(c.full_name LIKE ? OR c.phone LIKE ? OR c.username LIKE ?)');
     params.push(term, term, term);
+  }
+
+  const direction = String(sortOrder).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  let orderClause = `rr.day_of_week ${direction}, rr.start_time ASC, c.full_name ASC`;
+
+  if (sortBy === 'time') {
+    orderClause = `rr.start_time ${direction}, rr.day_of_week ASC, c.full_name ASC`;
+  } else if (sortBy === 'client') {
+    orderClause = `c.full_name ${direction}, rr.day_of_week ASC, rr.start_time ASC`;
   }
 
   const [rows] = await pool.query(
@@ -565,7 +582,7 @@ export async function listAllRecurring({
      FROM recurring_reservations rr
      INNER JOIN clients c ON c.id = rr.client_id
      WHERE ${conditions.join(' AND ')}
-     ORDER BY rr.day_of_week ASC, rr.start_time ASC, c.full_name ASC`,
+     ORDER BY ${orderClause}`,
     params
   );
 
@@ -673,6 +690,7 @@ export async function listActiveRecurringReservations() {
      FROM recurring_reservations rr
      INNER JOIN clients c ON c.id = rr.client_id
      WHERE rr.status = 'active'
+       AND c.deleted_at IS NULL
      ORDER BY rr.client_id ASC`
   );
 
@@ -688,6 +706,7 @@ export async function getRecurringOccupancyByTemplate() {
      FROM recurring_reservations rr
      INNER JOIN clients c ON c.id = rr.client_id
      WHERE rr.status = 'active'
+       AND c.deleted_at IS NULL
      GROUP BY rr.schedule_template_id`
   );
 
@@ -706,13 +725,28 @@ export async function getRecurringOccupancyByTemplate() {
 export async function countOccupyingRecurringByTemplate(scheduleTemplateId, connection = pool) {
   const [rows] = await connection.query(
     `SELECT COUNT(*) AS total
-     FROM recurring_reservations
-     WHERE schedule_template_id = ?
-       AND status = 'active'`,
+     FROM recurring_reservations rr
+     INNER JOIN clients c ON c.id = rr.client_id
+     WHERE rr.schedule_template_id = ?
+       AND rr.status = 'active'
+       AND c.deleted_at IS NULL`,
     [scheduleTemplateId]
   );
 
   return Number(rows[0]?.total || 0);
+}
+
+/** IDs de fijos activos/pausados de clientes ya desactivados (para limpiar cupos). */
+export async function listOrphanRecurringIdsForDeletedClients() {
+  const [rows] = await pool.query(
+    `SELECT rr.id
+     FROM recurring_reservations rr
+     INNER JOIN clients c ON c.id = rr.client_id
+     WHERE c.deleted_at IS NOT NULL
+       AND rr.status IN ('active', 'paused')`
+  );
+
+  return rows.map((row) => Number(row.id));
 }
 
 export async function updateRecurringReservation(id, updates, connection = pool) {
