@@ -226,7 +226,7 @@ export async function notifyReservationCancelled({
     await dispatchToAdmins(NOTIFICATION_EVENTS.CANCELLATION, {
       title: 'Cliente canceló una clase',
       body: `${clientName} canceló la clase${when}`,
-      payload: { url: `${env.appUrl}/admin/clases` },
+      payload: { url: `${env.appUrl}/admin/clientes?tab=cancelaciones` },
     });
     return;
   }

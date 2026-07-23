@@ -51,6 +51,11 @@ export const listReservationsQuerySchema = z.object({
   bookingType: z.enum(BOOKING_TYPES).optional(),
   clientId: z.coerce.number().int().positive().optional(),
   classId: z.coerce.number().int().positive().optional(),
+  cancelledBy: z.enum(['client', 'admin']).optional(),
+  search: z.string().trim().max(120).optional(),
+  cleared: z.enum(['open', 'cleared', 'all']).optional(),
+  sortBy: z.enum(['class_date', 'cancelled_at', 'client_name']).optional(),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });

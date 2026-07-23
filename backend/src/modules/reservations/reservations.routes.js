@@ -76,6 +76,7 @@ router.patch(
   validateBody(cancelReservationSchema),
   reservationsController.cancelReservationAdmin
 );
+router.patch('/:id/clear-cancellation', reservationsController.clearCancelledReservation);
 
 router.post('/recurring', validateBody(createRecurringSchema), reservationsController.createRecurring);
 router.get('/recurring/client/:clientId', reservationsController.listClientRecurring);

@@ -313,6 +313,7 @@ export async function createReservation({
           cancelledAt: null,
           cancelledBy: null,
           cancellationReason: null,
+          adminClearedAt: null,
         },
         connection
       );
@@ -723,6 +724,7 @@ export async function cancelReservation({
         cancellationReason:
           cancellationReason ||
           (nextStatus === 'no_show' ? 'Cancelación fuera de plazo' : null),
+        adminClearedAt: null,
       },
       connection
     );
@@ -904,9 +906,40 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
 export async function listReservations(query) {
   await expireStalePendingReservations({ source: 'list' });
   await completePastActiveReservations({ clientId: query.clientId || null });
-  const from = query.from || getTodayInArgentina();
-  const to = query.to || addDaysToDate(from, 30);
-  return reservationsRepository.listReservations({ ...query, from, to });
+
+  const isCancelledQueue = query.status === 'cancelled';
+  const from =
+    query.from ||
+    (isCancelledQueue ? addDaysToDate(getTodayInArgentina(), -45) : getTodayInArgentina());
+  const to = query.to || addDaysToDate(isCancelledQueue ? getTodayInArgentina() : from, 30);
+
+  return reservationsRepository.listReservations({
+    ...query,
+    from,
+    to,
+    sortBy: query.sortBy || (isCancelledQueue ? 'cancelled_at' : 'class_date'),
+    sortOrder: query.sortOrder || (isCancelledQueue ? 'desc' : 'asc'),
+  });
+}
+
+export async function clearCancelledReservation(reservationId) {
+  const reservation = await reservationsRepository.findReservationById(reservationId);
+
+  if (!reservation) {
+    throw createAppError('Reserva no encontrada', 404);
+  }
+
+  if (reservation.status !== 'cancelled') {
+    throw createAppError('Solo se pueden limpiar cancelaciones', 400);
+  }
+
+  if (reservation.adminClearedAt) {
+    return reservation;
+  }
+
+  return reservationsRepository.updateReservation(reservationId, {
+    adminClearedAt: new Date(),
+  });
 }
 
 export async function getMyReservations(clientId, query) {

@@ -153,6 +153,21 @@ export async function cancelReservationAdmin(req, res, next) {
   }
 }
 
+export async function clearCancelledReservation(req, res, next) {
+  try {
+    const reservation = await reservationsService.clearCancelledReservation(req.params.id);
+    res.json({
+      success: true,
+      data: {
+        reservation,
+        message: 'Cancelación marcada como revisada',
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getClassReservations(req, res, next) {
   try {
     const reservations = await reservationsService.getClassReservations(req.params.classId);

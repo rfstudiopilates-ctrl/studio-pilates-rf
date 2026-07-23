@@ -26,6 +26,7 @@ function mapReservationRow(row) {
     cancelledAt: row.cancelled_at,
     cancelledBy: row.cancelled_by,
     cancellationReason: row.cancellation_reason,
+    adminClearedAt: row.admin_cleared_at || null,
     createdByAdminId: row.created_by_admin_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -272,6 +273,11 @@ export async function listReservations({
   bookingType,
   clientId,
   classId,
+  cancelledBy,
+  search,
+  cleared,
+  sortBy = 'class_date',
+  sortOrder = 'asc',
   page = 1,
   limit = 50,
 }) {
@@ -298,12 +304,42 @@ export async function listReservations({
     params.push(classId);
   }
 
+  if (cancelledBy) {
+    conditions.push('r.cancelled_by = ?');
+    params.push(cancelledBy);
+  }
+
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    conditions.push('(c.full_name LIKE ? OR c.phone LIKE ? OR c.username LIKE ?)');
+    params.push(term, term, term);
+  }
+
+  if (cleared === 'open') {
+    conditions.push('r.admin_cleared_at IS NULL');
+  } else if (cleared === 'cleared') {
+    conditions.push('r.admin_cleared_at IS NOT NULL');
+  }
+
   const whereClause = conditions.join(' AND ');
   const offset = (page - 1) * limit;
+
+  const orderColumn =
+    sortBy === 'cancelled_at'
+      ? 'r.cancelled_at'
+      : sortBy === 'client_name'
+        ? 'c.full_name'
+        : 'gc.class_date';
+  const orderDirection = String(sortOrder).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  const secondaryOrder =
+    sortBy === 'cancelled_at'
+      ? 'gc.class_date DESC, gc.start_time DESC'
+      : 'gc.start_time ASC';
 
   const [countRows] = await pool.query(
     `SELECT COUNT(*) AS total
      FROM class_reservations r
+     INNER JOIN clients c ON c.id = r.client_id
      INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
      WHERE ${whereClause}`,
     params
@@ -312,7 +348,7 @@ export async function listReservations({
   const [rows] = await pool.query(
     `${reservationSelect}
      WHERE ${whereClause}
-     ORDER BY gc.class_date ASC, gc.start_time ASC
+     ORDER BY ${orderColumn} ${orderDirection}, ${secondaryOrder}
      LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );
@@ -355,6 +391,7 @@ export async function updateReservation(id, updates, connection = pool) {
     cancelledAt: 'cancelled_at',
     cancelledBy: 'cancelled_by',
     cancellationReason: 'cancellation_reason',
+    adminClearedAt: 'admin_cleared_at',
     notes: 'notes',
   };
 

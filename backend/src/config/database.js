@@ -68,6 +68,13 @@ export async function ensureSchemaPatches() {
             ADD COLUMN read_at TIMESTAMP NULL DEFAULT NULL
             AFTER sent_at`,
     },
+    {
+      table: 'class_reservations',
+      column: 'admin_cleared_at',
+      ddl: `ALTER TABLE class_reservations
+            ADD COLUMN admin_cleared_at TIMESTAMP NULL DEFAULT NULL
+            AFTER cancellation_reason`,
+    },
   ];
 
   for (const patch of patches) {
