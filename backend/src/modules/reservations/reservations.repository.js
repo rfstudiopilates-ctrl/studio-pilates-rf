@@ -221,6 +221,26 @@ export async function listConsumingReservationDatesInRange(
   return rows.map((row) => row.class_date);
 }
 
+/** Fechas con cualquier reserva del cliente (incluye canceladas a tiempo). */
+export async function listClientClassDatesInRange(
+  clientId,
+  fromDate,
+  toDate,
+  connection = pool
+) {
+  const [rows] = await connection.query(
+    `SELECT DISTINCT DATE_FORMAT(gc.class_date, '%Y-%m-%d') AS class_date
+     FROM class_reservations r
+     INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
+     WHERE r.client_id = ?
+       AND r.status IN ('pending', 'confirmed', 'completed', 'no_show', 'cancelled')
+       AND gc.class_date BETWEEN ? AND ?`,
+    [clientId, fromDate, toDate]
+  );
+
+  return rows.map((row) => row.class_date);
+}
+
 export async function listActiveRecurringDaysByClient(clientId, connection = pool) {
   const [rows] = await connection.query(
     `SELECT day_of_week

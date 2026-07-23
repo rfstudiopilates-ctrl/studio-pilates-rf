@@ -10,6 +10,7 @@
     "lint": "eslint src/",
     "seed:auth": "node scripts/seed-auth.js",
     "db:init": "node scripts/db-init.js",
+    "db:reset-delivery": "node scripts/db-reset-for-delivery.js",
     "set:password": "node scripts/set-password.js",
     "generate:vapid": "node scripts/generate-vapid.js"
   },
