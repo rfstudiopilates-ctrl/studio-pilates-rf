@@ -24,6 +24,8 @@ function mapClientRow(row) {
     pwaInstalled: Boolean(row.pwa_installed_at),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    deletedAt: row.deleted_at || null,
+    isDeactivated: Boolean(row.deleted_at),
     activePlanId: row.active_plan_id ?? null,
     activePlanName: row.active_plan_name ?? null,
     balance,
@@ -44,10 +46,12 @@ function mapHistoryRow(row) {
   };
 }
 
-export async function findClientById(id) {
+export async function findClientById(id, { includeDeleted = false } = {}) {
+  const deletedClause = includeDeleted ? '' : 'AND deleted_at IS NULL';
   const [rows] = await pool.query(
-    `SELECT id, username, full_name, phone, status, internal_notes, last_login_at, pwa_installed_at, created_at, updated_at
-     FROM clients WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    `SELECT id, username, full_name, phone, status, internal_notes, last_login_at, pwa_installed_at,
+            created_at, updated_at, deleted_at
+     FROM clients WHERE id = ? ${deletedClause} LIMIT 1`,
     [id]
   );
 
@@ -101,6 +105,7 @@ export async function findClientWithPasswordById(id) {
 export async function listClients({
   q,
   status,
+  account = 'active',
   hasLogin,
   createdFrom,
   createdTo,
@@ -109,8 +114,16 @@ export async function listClients({
   sortBy,
   sortOrder,
 }) {
-  const conditions = ['c.deleted_at IS NULL'];
+  const conditions = [];
   const params = [];
+
+  if (account === 'deactivated') {
+    conditions.push('c.deleted_at IS NOT NULL');
+  } else if (account === 'all') {
+    // Incluye activos y desactivados.
+  } else {
+    conditions.push('c.deleted_at IS NULL');
+  }
 
   if (q) {
     const search = `%${q}%`;
@@ -141,7 +154,7 @@ export async function listClients({
     params.push(createdTo);
   }
 
-  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
   const sortColumns = {
     fullName: 'c.full_name',
@@ -170,6 +183,7 @@ export async function listClients({
        c.last_login_at,
        c.created_at,
        c.updated_at,
+       c.deleted_at,
        cp.id AS active_plan_id,
        p.name AS active_plan_name,
        latest.balance_after

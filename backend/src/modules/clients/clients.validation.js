@@ -47,6 +47,7 @@ export const updateClientSchema = z
 export const listClientsQuerySchema = z.object({
   q: z.string().max(100).optional(),
   status: statusSchema.optional(),
+  account: z.enum(['active', 'deactivated', 'all']).default('active'),
   hasLogin: z.enum(['logged', 'never']).optional(),
   createdFrom: z
     .string()

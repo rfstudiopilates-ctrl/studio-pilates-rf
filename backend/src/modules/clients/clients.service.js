@@ -26,7 +26,7 @@ export async function listClients(query) {
 }
 
 export async function getClientById(id) {
-  const client = await clientsRepository.findClientById(id);
+  const client = await clientsRepository.findClientById(id, { includeDeleted: true });
 
   if (!client) {
     throw createAppError('Cliente no encontrado', 404);
