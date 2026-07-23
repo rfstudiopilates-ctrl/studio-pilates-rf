@@ -125,6 +125,7 @@ export default function ClientsListPage() {
   }, [
     debouncedSearch,
     filters.status,
+    filters.account,
     filters.hasLogin,
     filters.createdFrom,
     filters.createdTo,

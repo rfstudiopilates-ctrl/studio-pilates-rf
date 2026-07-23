@@ -4,6 +4,7 @@ import NavIcon from '../ui/NavIcon';
 import { Select } from '../ui/Select';
 import { CLIENT_STATUS_LABELS } from '../../constants/clients';
 import {
+  CLIENT_ACCOUNT_FILTER_LABELS,
   CLIENT_LOGIN_FILTER_LABELS,
   CLIENT_PAGE_SIZE_OPTIONS,
   CLIENT_SORT_LABELS,
@@ -44,6 +45,19 @@ export default function ClientsListFilters({
           >
             <option value="">Todos</option>
             {Object.entries(CLIENT_STATUS_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            label="Cuenta"
+            value={filters.account}
+            onChange={(event) => updateFilter('account', event.target.value)}
+            className="w-full shrink-0 sm:w-44 md:w-52"
+          >
+            {Object.entries(CLIENT_ACCOUNT_FILTER_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>

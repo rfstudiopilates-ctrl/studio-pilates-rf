@@ -10,11 +10,18 @@ export const CLIENT_LOGIN_FILTER_LABELS = {
   never: 'Sin acceso aún',
 };
 
+export const CLIENT_ACCOUNT_FILTER_LABELS = {
+  active: 'Solo activas',
+  deactivated: 'Solo desactivadas',
+  all: 'Todas (incluye desactivadas)',
+};
+
 export const CLIENT_PAGE_SIZE_OPTIONS = [10, 20, 50];
 
 export const DEFAULT_CLIENT_FILTERS = {
   search: '',
   status: '',
+  account: 'active',
   hasLogin: '',
   createdFrom: '',
   createdTo: '',
@@ -40,6 +47,7 @@ export function buildClientsListParams(filters, page) {
   return {
     q: filters.search.trim() || undefined,
     status: filters.status || undefined,
+    account: filters.account || DEFAULT_CLIENT_FILTERS.account,
     hasLogin: filters.hasLogin || undefined,
     createdFrom: filters.createdFrom || undefined,
     createdTo: filters.createdTo || undefined,

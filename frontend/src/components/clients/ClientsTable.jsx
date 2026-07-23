@@ -71,7 +71,9 @@ export default function ClientsTable({ clients, isFetching, onEditClient }) {
                   key={client.id}
                   className={`transition-colors hover:bg-brand-50/40 ${
                     index % 2 === 1 ? 'bg-surface-muted/20' : 'bg-white'
-                  } ${isFetching ? 'opacity-80' : ''}`}
+                  } ${isFetching ? 'opacity-80' : ''} ${
+                    client.isDeactivated || client.deletedAt ? 'opacity-90' : ''
+                  }`}
                 >
                   <td className="px-3 py-3 sm:px-4 md:px-5 md:py-4">
                     <div className="flex items-center gap-2 sm:gap-3">
@@ -108,11 +110,18 @@ export default function ClientsTable({ clients, isFetching, onEditClient }) {
                     {client.phone || '—'}
                   </td>
                   <td className="px-3 py-3 sm:px-4 md:px-5 md:py-4">
-                    <ClientStatusBadge
-                      status={client.status}
-                      outstandingDebt={client.outstandingDebt}
-                      clientId={client.id}
-                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <ClientStatusBadge
+                        status={client.status}
+                        outstandingDebt={client.outstandingDebt}
+                        clientId={client.id}
+                      />
+                      {client.isDeactivated || client.deletedAt ? (
+                        <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-danger sm:px-2.5 sm:py-1 sm:text-xs">
+                          Desactivado
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-text-muted sm:table-cell sm:px-4 md:px-5 md:py-4">
                     {formatLastAccess(client.lastLoginAt)}

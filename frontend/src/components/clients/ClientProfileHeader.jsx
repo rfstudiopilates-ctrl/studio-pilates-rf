@@ -23,6 +23,11 @@ export default function ClientProfileHeader({ client, actions }) {
             <div className="mb-2 flex flex-wrap items-center gap-2">
               <h2 className="text-xl font-semibold text-text">{client.fullName}</h2>
               <ClientStatusBadge status={client.status} />
+              {client.isDeactivated || client.deletedAt ? (
+                <span className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-semibold text-danger">
+                  Cuenta desactivada
+                </span>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-text-muted">
               <span className="inline-flex items-center gap-1.5">
