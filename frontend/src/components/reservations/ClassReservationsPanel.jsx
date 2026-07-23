@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import ClientSearchSelect from '../clients/ClientSearchSelect';
 import WhatsAppReminderButton from '../notifications/WhatsAppReminderButton';
@@ -221,8 +221,13 @@ function ReservationCard({
   );
 }
 
-export default function ClassReservationsPanel({ classItem, onClose, embedded = false }) {
-  const { data: reservations = [], isLoading } = useClassReservations(classItem?.id);
+export default function ClassReservationsPanel({
+  classItem,
+  onClose,
+  embedded = false,
+  onClassOccupancyChange,
+}) {
+  const { data, isLoading } = useClassReservations(classItem?.id);
   const createReservation = useCreateReservation();
   const confirmReservation = useConfirmReservation();
   const cancelReservation = useCancelReservation();
@@ -235,9 +240,46 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
   const [reassignClassId, setReassignClassId] = useState('');
   const [guestReservation, setGuestReservation] = useState(null);
 
-  const activeReservations = reservations.filter((item) =>
-    ['pending', 'confirmed'].includes(item.status)
+  const reservations = data?.reservations || [];
+  const syncedClass = data?.classItem || null;
+
+  const activeReservations = useMemo(
+    () => reservations.filter((item) => ['pending', 'confirmed'].includes(item.status)),
+    [reservations]
   );
+
+  const liveClassItem = useMemo(() => {
+    const capacity = Number(syncedClass?.capacity ?? classItem?.capacity ?? 0);
+    const bookedCount = data
+      ? activeReservations.length
+      : Number(syncedClass?.bookedCount ?? classItem?.bookedCount ?? 0);
+    const spotsAvailable = Math.max(0, capacity - bookedCount);
+
+    return {
+      ...(syncedClass || classItem),
+      capacity,
+      bookedCount,
+      spotsAvailable,
+      isFull: capacity > 0 ? bookedCount >= capacity : Boolean(classItem?.isFull),
+    };
+  }, [data, activeReservations.length, syncedClass, classItem]);
+
+  useEffect(() => {
+    if (!onClassOccupancyChange || !classItem?.id) return;
+
+    onClassOccupancyChange({
+      ...liveClassItem,
+      id: classItem.id,
+    });
+  }, [
+    onClassOccupancyChange,
+    classItem?.id,
+    liveClassItem.bookedCount,
+    liveClassItem.spotsAvailable,
+    liveClassItem.isFull,
+    liveClassItem.capacity,
+    liveClassItem.status,
+  ]);
 
   async function handleCreate() {
     if (!selectedClient?.id) return;
@@ -382,7 +424,7 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
             setStatus={setStatus}
             onCreate={handleCreate}
             isCreating={createReservation.isPending}
-            isFull={classItem.isFull}
+            isFull={liveClassItem.isFull}
           />
         </div>
 
@@ -420,7 +462,7 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
             {classItem.endTime}
           </p>
           <p className="text-sm text-text-muted">
-            Cupos: {classItem.bookedCount}/{classItem.capacity}
+            Cupos: {liveClassItem.bookedCount}/{liveClassItem.capacity}
           </p>
         </div>
         <Button variant="secondary" onClick={onClose} className="w-full sm:w-auto">
@@ -445,7 +487,7 @@ export default function ClassReservationsPanel({ classItem, onClose, embedded = 
           setStatus={setStatus}
           onCreate={handleCreate}
           isCreating={createReservation.isPending}
-          isFull={classItem.isFull}
+          isFull={liveClassItem.isFull}
         />
       </div>
 

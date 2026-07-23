@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from 'react';
 import ClassReservationsPanel from '../reservations/ClassReservationsPanel';
 import { Button } from '../ui/Button';
 import Modal from '../ui/Modal';
@@ -20,26 +21,57 @@ export default function ClassDetailModal({
   onClose,
   onCancelClass,
   isCancelling,
+  onClassUpdated,
 }) {
+  const [liveClassItem, setLiveClassItem] = useState(classItem);
+
+  useEffect(() => {
+    setLiveClassItem(classItem);
+  }, [classItem]);
+
+  const handleOccupancyChange = useCallback(
+    (nextClassItem) => {
+      if (!nextClassItem?.id) return;
+
+      setLiveClassItem((current) => {
+        if (
+          current &&
+          Number(current.id) === Number(nextClassItem.id) &&
+          Number(current.bookedCount) === Number(nextClassItem.bookedCount) &&
+          Number(current.spotsAvailable) === Number(nextClassItem.spotsAvailable) &&
+          Boolean(current.isFull) === Boolean(nextClassItem.isFull) &&
+          current.status === nextClassItem.status
+        ) {
+          return current;
+        }
+        return { ...(current || {}), ...nextClassItem };
+      });
+
+      onClassUpdated?.(nextClassItem);
+    },
+    [onClassUpdated]
+  );
+
   if (!classItem) {
     return null;
   }
 
+  const displayClass = liveClassItem || classItem;
   const canCancel =
-    classItem.status === 'scheduled' && Number(classItem.bookedCount || 0) === 0;
-  const used = Number(classItem.bookedCount || 0);
-  const total = Number(classItem.capacity || 0);
+    displayClass.status === 'scheduled' && Number(displayClass.bookedCount || 0) === 0;
+  const used = Number(displayClass.bookedCount || 0);
+  const total = Number(displayClass.capacity || 0);
   const rate = total > 0 ? Math.round((used / total) * 100) : 0;
-  const spotsLabel = classItem.isFull
+  const spotsLabel = displayClass.isFull
     ? 'Clase completa'
-    : `${classItem.spotsAvailable} lugar${Number(classItem.spotsAvailable) === 1 ? '' : 'es'} libre${Number(classItem.spotsAvailable) === 1 ? '' : 's'}`;
+    : `${displayClass.spotsAvailable} lugar${Number(displayClass.spotsAvailable) === 1 ? '' : 'es'} libre${Number(displayClass.spotsAvailable) === 1 ? '' : 's'}`;
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={`${classItem.startTime} – ${classItem.endTime}`}
-      description={`${formatDateDisplay(classItem.classDate)} · Detalle de la clase`}
+      title={`${displayClass.startTime} – ${displayClass.endTime}`}
+      description={`${formatDateDisplay(displayClass.classDate)} · Detalle de la clase`}
       size="2xl"
       bodyScroll={false}
       footer={
@@ -50,7 +82,7 @@ export default function ClassDetailModal({
               <Button
                 variant="ghost"
                 className="text-danger"
-                onClick={() => onCancelClass?.(classItem)}
+                onClick={() => onCancelClass?.(displayClass)}
                 isLoading={isCancelling}
               >
                 Cancelar clase
@@ -68,23 +100,23 @@ export default function ClassDetailModal({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(classItem.status)}`}
+                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(displayClass.status)}`}
               >
-                {CLASS_STATUS_LABELS[classItem.status]}
+                {CLASS_STATUS_LABELS[displayClass.status]}
               </span>
-              {classItem.isFull ? (
+              {displayClass.isFull ? (
                 <span className="inline-flex rounded-full border border-amber-100 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
                   Completa
                 </span>
               ) : null}
             </div>
             <p className="mt-2 text-xl font-semibold tabular-nums tracking-tight text-text sm:text-2xl">
-              {classItem.startTime}
+              {displayClass.startTime}
               <span className="mx-1.5 text-base font-medium text-text-muted">–</span>
-              {classItem.endTime}
+              {displayClass.endTime}
             </p>
             <p className="mt-0.5 capitalize text-sm text-text-muted">
-              {formatDateDisplay(classItem.classDate)}
+              {formatDateDisplay(displayClass.classDate)}
             </p>
           </div>
 
@@ -112,7 +144,12 @@ export default function ClassDetailModal({
           </div>
         </div>
 
-        <ClassReservationsPanel classItem={classItem} onClose={onClose} embedded />
+        <ClassReservationsPanel
+          classItem={classItem}
+          onClose={onClose}
+          embedded
+          onClassOccupancyChange={handleOccupancyChange}
+        />
       </div>
     </Modal>
   );

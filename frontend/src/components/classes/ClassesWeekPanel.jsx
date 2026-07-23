@@ -117,6 +117,31 @@ export default function ClassesWeekPanel() {
     }
   }, [selectedDate, today]);
 
+  useEffect(() => {
+    if (!selectedClass?.id) return;
+
+    const sourceClasses = Array.isArray(data?.classes)
+      ? data.classes
+      : Object.values(data?.grouped || {}).flat();
+    if (!sourceClasses.length) return;
+
+    const fresh = sourceClasses.find((item) => Number(item.id) === Number(selectedClass.id));
+    if (!fresh) return;
+
+    setSelectedClass((current) => {
+      if (!current || Number(current.id) !== Number(fresh.id)) return current;
+      if (
+        Number(current.bookedCount) === Number(fresh.bookedCount) &&
+        Number(current.spotsAvailable) === Number(fresh.spotsAvailable) &&
+        Boolean(current.isFull) === Boolean(fresh.isFull) &&
+        current.status === fresh.status
+      ) {
+        return current;
+      }
+      return fresh;
+    });
+  }, [data, selectedClass?.id]);
+
   const monthStats = useMemo(() => {
     const allClasses = Object.values(visibleGrouped).flat();
     const scheduled = allClasses.filter((item) => item.status === 'scheduled');
@@ -297,6 +322,21 @@ export default function ClassesWeekPanel() {
         onClose={() => setSelectedClass(null)}
         onCancelClass={handleCancelClass}
         isCancelling={updateClass.isPending}
+        onClassUpdated={(nextClass) => {
+          if (!nextClass?.id) return;
+          setSelectedClass((current) => {
+            if (!current || Number(current.id) !== Number(nextClass.id)) return current;
+            if (
+              Number(current.bookedCount) === Number(nextClass.bookedCount) &&
+              Number(current.spotsAvailable) === Number(nextClass.spotsAvailable) &&
+              Boolean(current.isFull) === Boolean(nextClass.isFull) &&
+              current.status === nextClass.status
+            ) {
+              return current;
+            }
+            return { ...current, ...nextClass };
+          });
+        }}
       />
     </div>
   );

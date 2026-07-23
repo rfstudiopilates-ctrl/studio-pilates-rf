@@ -33,7 +33,7 @@ export const reservationsApi = {
 
   listByClass: async (classId) => {
     const { data } = await api.get(`/reservations/class/${classId}`);
-    return data.data.reservations;
+    return data.data;
   },
 
   listByClient: async (clientId, params) => {
