@@ -3,6 +3,7 @@ import * as classesController from './classes.controller.js';
 import {
   availabilityQuerySchema,
   calendarQuerySchema,
+  cancelClassBodySchema,
   cancelFutureByScheduleBodySchema,
   cancelFutureByScheduleQuerySchema,
   listClassesQuerySchema,
@@ -41,6 +42,7 @@ router.post(
   classesController.cancelFutureBySchedule
 );
 router.get('/', validateQuery(listClassesQuerySchema), classesController.listClasses);
+router.post('/:id/cancel', validateBody(cancelClassBodySchema), classesController.cancelClass);
 router.get('/:id', classesController.getClass);
 router.patch('/:id', validateBody(updateClassSchema), classesController.updateClass);
 

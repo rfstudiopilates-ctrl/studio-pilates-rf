@@ -201,6 +201,8 @@ export async function notifyReservationCancelled({
   clientName,
   cancelledBy,
   wasPendingRequest = false,
+  studioCancelledClass = false,
+  returnedToPlan = false,
 }) {
   const when = formatWhen(reservation);
 
@@ -215,7 +217,9 @@ export async function notifyReservationCancelled({
       await dispatchToClient(clientId, {
         eventType: NOTIFICATION_EVENTS.CANCELLATION,
         title: 'Solicitud cancelada',
-        body: `La solicitud por la clase${when} fue cancelada`,
+        body: studioCancelledClass
+          ? `La clase${when} fue cancelada por el estudio y tu solicitud quedó sin efecto.`
+          : `La solicitud por la clase${when} fue cancelada`,
         payload: { url: `${env.appUrl}/cliente/reservas` },
       });
     }
@@ -232,10 +236,24 @@ export async function notifyReservationCancelled({
   }
 
   if (cancelledBy === 'admin') {
+    if (studioCancelledClass) {
+      await dispatchToClient(clientId, {
+        eventType: NOTIFICATION_EVENTS.CANCELLATION,
+        title: 'Clase cancelada por el estudio',
+        body: returnedToPlan
+          ? `Tu clase${when} fue cancelada. El cupo volvió a tu abono: podés usarlo cualquier otro día mientras tu plan mensual esté vigente.`
+          : `Tu clase${when} fue cancelada por el estudio.`,
+        payload: { url: `${env.appUrl}/cliente/reservas` },
+      });
+      return;
+    }
+
     await dispatchToClient(clientId, {
       eventType: NOTIFICATION_EVENTS.CANCELLATION,
       title: 'Clase cancelada',
-      body: `Tu clase${when} fue cancelada`,
+      body: returnedToPlan
+        ? `Tu clase${when} fue cancelada. El cupo volvió a tu abono: podés usarlo cualquier otro día mientras tu plan mensual esté vigente.`
+        : `Tu clase${when} fue cancelada`,
       payload: { url: `${env.appUrl}/cliente/reservas` },
     });
   }

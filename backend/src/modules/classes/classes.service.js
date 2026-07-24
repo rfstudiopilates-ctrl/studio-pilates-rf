@@ -90,7 +90,7 @@ export async function triggerClassGeneration() {
   return generateClasses();
 }
 
-export async function updateClass(id, payload) {
+export async function updateClass(id, payload, { adminId } = {}) {
   const classItem = await getClassById(id);
 
   if (payload.capacity !== undefined && payload.capacity < classItem.bookedCount) {
@@ -104,14 +104,82 @@ export async function updateClass(id, payload) {
     throw createAppError('Estado de clase inválido', 400);
   }
 
-  if (payload.status === 'cancelled' && classItem.bookedCount > 0) {
+  if (payload.status === 'cancelled') {
+    const result = await cancelClass(id, { adminId });
+    return result.classItem;
+  }
+
+  return classesRepository.updateClass(id, payload);
+}
+
+/**
+ * Cancela una clase puntual (con o sin alumnos):
+ * libera reservas, devuelve cupo del abono y notifica a cada cliente.
+ */
+export async function cancelClass(id, { adminId, reason } = {}) {
+  const classItem = await getClassById(id);
+
+  if (classItem.status === 'cancelled') {
+    return {
+      classItem,
+      cancelledReservations: 0,
+      returnedQuota: 0,
+      alreadyCancelled: true,
+    };
+  }
+
+  if (classItem.status !== 'scheduled') {
+    throw createAppError('Solo se pueden cancelar clases programadas', 400);
+  }
+
+  const cancellationReason = reason || 'Clase cancelada por el estudio';
+  const reservations = await reservationsRepository.listActiveReservationsByClassId(id);
+
+  let cancelledReservations = 0;
+  let returnedQuota = 0;
+  const errors = [];
+
+  for (const reservation of reservations) {
+    try {
+      const result = await cancelReservation({
+        reservationId: reservation.id,
+        cancelledBy: 'admin',
+        cancellationReason,
+        adminId,
+        silent: false,
+        forceReturnQuota: true,
+        studioCancelledClass: true,
+      });
+      cancelledReservations += 1;
+      if (result.returnedToPlan) {
+        returnedQuota += 1;
+      }
+    } catch (error) {
+      errors.push({
+        reservationId: reservation.id,
+        message: error.message || 'No se pudo cancelar la reserva',
+      });
+    }
+  }
+
+  await classesRepository.syncBookedCountFromReservations(id);
+  const synced = await classesRepository.getClassById(id);
+
+  if (synced?.bookedCount > 0) {
     throw createAppError(
-      'No podés cancelar una clase con reservas. Cancelá las reservas primero.',
+      `No se pudo cancelar la clase: quedan ${synced.bookedCount} reserva(s) activa(s).`,
       400
     );
   }
 
-  return classesRepository.updateClass(id, payload);
+  const updated = await classesRepository.updateClass(id, { status: 'cancelled' });
+
+  return {
+    classItem: updated,
+    cancelledReservations,
+    returnedQuota,
+    errors,
+  };
 }
 
 export async function listScheduleCleanupCandidates() {

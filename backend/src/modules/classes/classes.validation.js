@@ -31,6 +31,10 @@ export const updateClassSchema = z
     message: 'Debés enviar al menos un campo para actualizar',
   });
 
+export const cancelClassBodySchema = z.object({
+  reason: z.string().trim().min(3).max(255).optional(),
+});
+
 const dayOfWeekSchema = z.coerce.number().int().min(1).max(7);
 const timeSchema = z
   .string()
@@ -54,7 +58,7 @@ export const cancelFutureByScheduleBodySchema = z.object({
 
 export function validateBody(schema) {
   return (req, res, next) => {
-    const result = schema.safeParse(req.body);
+    const result = schema.safeParse(req.body ?? {});
     if (!result.success) {
       const message = result.error.issues.map((issue) => issue.message).join(', ');
       return res.status(400).json({ success: false, error: { message } });

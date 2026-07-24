@@ -56,8 +56,22 @@ export async function generateClasses(req, res, next) {
 
 export async function updateClass(req, res, next) {
   try {
-    const classItem = await classesService.updateClass(req.params.id, req.validatedBody);
+    const classItem = await classesService.updateClass(req.params.id, req.validatedBody, {
+      adminId: req.auth.sub,
+    });
     res.json({ success: true, data: { class: classItem } });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function cancelClass(req, res, next) {
+  try {
+    const result = await classesService.cancelClass(req.params.id, {
+      adminId: req.auth.sub,
+      reason: req.validatedBody?.reason,
+    });
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

@@ -654,6 +654,7 @@ export async function cancelReservation({
   silent = false,
   skipRecoveryCredit = false,
   forceReturnQuota = false,
+  studioCancelledClass = false,
 }) {
   const settings = await getSettings();
   const connection = await pool.getConnection();
@@ -765,6 +766,7 @@ export async function cancelReservation({
         status: nextStatus,
         returnedToPlan,
         timelyCancel,
+        studioCancelledClass: Boolean(studioCancelledClass),
       },
       performedByType: cancelledBy === 'client' ? 'client' : adminId ? 'admin' : 'system',
       performedById: adminId || (cancelledBy === 'client' ? Number(clientId) : null),
@@ -781,6 +783,8 @@ export async function cancelReservation({
           clientName: reservation.clientName,
           cancelledBy,
           wasPendingRequest: isDropInPending,
+          studioCancelledClass,
+          returnedToPlan,
         })
       );
     }
