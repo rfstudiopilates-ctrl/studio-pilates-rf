@@ -47,6 +47,7 @@ export function useCancelMyReservation() {
       queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY });
       queryClient.invalidateQueries({ queryKey: ['classes'] });
       queryClient.invalidateQueries({ queryKey: ['plans'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
 }

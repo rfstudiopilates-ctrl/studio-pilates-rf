@@ -6,6 +6,7 @@ import InstallPwaBanner from '../../components/pwa/InstallPwaBanner';
 import PushNotificationBanner from '../../components/notifications/PushNotificationBanner';
 import { Button } from '../../components/ui/Button';
 import NavIcon from '../../components/ui/NavIcon';
+import { useMyAccount } from '../../hooks/useFinances';
 import { useMyActivePlan } from '../../hooks/usePlans';
 import { useMyReservations } from '../../hooks/useReservations';
 import { CLIENT_PLAN_STATUS_LABELS } from '../../constants/plans';
@@ -14,6 +15,7 @@ import {
   RESERVATION_STATUS_LABELS,
   RESERVATION_STATUS_STYLES,
 } from '../../constants/reservations';
+import { formatCurrency } from '../../lib/currency';
 import {
   addDaysToDate,
   formatDateDisplay,
@@ -25,6 +27,79 @@ function getPlanBadgeClass(status) {
   if (status === 'active') return 'border-emerald-100 bg-emerald-50 text-emerald-800';
   if (status === 'cancelled') return 'border-red-100 bg-red-50 text-danger';
   return 'border-border bg-surface-muted text-text-muted';
+}
+
+function AccountBalanceCard({ summary, isLoading, isError }) {
+  if (isLoading) {
+    return (
+      <section className="rounded-2xl border border-border bg-white px-4 py-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)]">
+        <p className="text-sm text-text-muted">Cargando saldo...</p>
+      </section>
+    );
+  }
+
+  if (isError) {
+    return (
+      <section className="rounded-2xl border border-border bg-white px-4 py-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)]">
+        <p className="text-sm text-danger">No se pudo cargar tu saldo. Probá actualizar la página.</p>
+      </section>
+    );
+  }
+
+  const outstandingDebt = Number(summary?.outstandingDebt ?? 0);
+  const balance = Number(summary?.balance ?? 0);
+  const hasDebt = outstandingDebt > 0;
+
+  if (hasDebt) {
+    return (
+      <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 shadow-[0_8px_30px_rgba(26,26,26,0.04)]">
+        <div className="flex items-start gap-3 px-3.5 py-3.5 sm:px-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+            <NavIcon name="wallet" className="h-4 w-4 text-warning" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-text">Deuda pendiente</h2>
+              <span className="rounded-full border border-amber-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-warning">
+                Por pagar
+              </span>
+            </div>
+            <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-danger">
+              {formatCurrency(outstandingDebt)}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-text-muted">
+              Recordá regularizar el pago con el estudio para mantener tu cuenta al día.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-border bg-white px-3.5 py-3.5 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:px-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+          <NavIcon name="wallet" className="h-4 w-4 text-emerald-700" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold text-text">Tu saldo</p>
+              <p className="mt-0.5 text-xs text-text-muted">Cuenta al día</p>
+            </div>
+            <p
+              className={`text-lg font-semibold tabular-nums ${
+                balance > 0 ? 'text-emerald-700' : 'text-text'
+              }`}
+            >
+              {formatCurrency(balance)}
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function PlanUsageCell({ label, used, limit, remaining, hint }) {
@@ -228,6 +303,7 @@ function UpcomingReservationsCard({ reservations, isLoading }) {
 export default function ClientDashboardPage() {
   const { user } = useAuth();
   const { data: activePlan, isLoading: planLoading, isError: planError } = useMyActivePlan();
+  const { data: accountData, isLoading: accountLoading, isError: accountError } = useMyAccount();
   const today = getTodayInArgentina();
 
   const { data: reservationsData, isLoading: reservationsLoading } = useMyReservations({
@@ -261,6 +337,12 @@ export default function ClientDashboardPage() {
         <PushNotificationBanner
           title="Activá avisos en este celular"
           description="Así te enterás al instante cuando confirmen tu solicitud de turno, te cancelen una clase o haya un cambio de horario."
+        />
+
+        <AccountBalanceCard
+          summary={accountData?.summary}
+          isLoading={accountLoading}
+          isError={accountError}
         />
 
         <CompactPlanCard
