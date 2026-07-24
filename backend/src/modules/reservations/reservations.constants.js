@@ -22,3 +22,8 @@ export const RECURRING_STATUSES = ['active', 'paused', 'cancelled'];
 export const RECOVERY_CREDIT_STATUSES = ['available', 'used', 'expired'];
 
 export const ACTIVE_RESERVATION_STATUSES = ['pending', 'confirmed'];
+
+/** Motivo al pausar un fijo: processRecurring puede reactivar esas reservas. */
+export const PAUSED_RECURRING_CANCELLATION_REASON = 'Horario fijo pausado';
+
+export const CANCELLED_RECURRING_CANCELLATION_REASON = 'Horario fijo cancelado';

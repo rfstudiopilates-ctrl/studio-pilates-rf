@@ -25,7 +25,7 @@ import {
 } from '../finances/finances.service.js';
 import { PAYMENT_METHOD_LABELS } from '../finances/finances.constants.js';
 import * as reservationsRepository from './reservations.repository.js';
-import { ACTIVE_RESERVATION_STATUSES } from './reservations.constants.js';
+import { ACTIVE_RESERVATION_STATUSES, PAUSED_RECURRING_CANCELLATION_REASON, CANCELLED_RECURRING_CANCELLATION_REASON } from './reservations.constants.js';
 import {
   getFixedScheduleSlotLimit,
   planAllowsFixedSchedules,
@@ -1284,8 +1284,8 @@ export async function updateRecurringReservation(id, payload, adminId) {
           cancelledBy: 'admin',
           cancellationReason:
             payload.status === 'paused'
-              ? 'Horario fijo pausado'
-              : 'Horario fijo cancelado',
+              ? PAUSED_RECURRING_CANCELLATION_REASON
+              : CANCELLED_RECURRING_CANCELLATION_REASON,
           adminId,
         });
       } catch {
@@ -1433,9 +1433,22 @@ export async function processRecurringReservations(options = {}) {
         classItem.id
       );
 
-      if (existing && ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
-        skipped += 1;
-        continue;
+      if (existing) {
+        if (ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
+          skipped += 1;
+          continue;
+        }
+
+        // Si el cliente/admin canceló esa fecha puntual, respetarlo.
+        // Solo reactivar reservas canceladas al pausar el fijo.
+        const canReactivateFromPause =
+          existing.status === 'cancelled' &&
+          existing.cancellationReason === PAUSED_RECURRING_CANCELLATION_REASON;
+
+        if (!canReactivateFromPause) {
+          skipped += 1;
+          continue;
+        }
       }
 
       const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
