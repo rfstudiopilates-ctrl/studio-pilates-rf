@@ -31,6 +31,11 @@ export const classesApi = {
     return data.data.class;
   },
 
+  cancel: async (id, payload = {}) => {
+    const { data } = await api.post(`/classes/${id}/cancel`, payload);
+    return data.data;
+  },
+
   listScheduleCleanupCandidates: async () => {
     const { data } = await api.get('/classes/schedule-cleanup-candidates');
     return data.data;

@@ -111,7 +111,7 @@ function ClassCarouselCard({
         <OccupancyBar booked={booked} capacity={capacity} />
       ) : null}
 
-      {classItem.status === 'scheduled' ? (
+          {classItem.status === 'scheduled' ? (
         <div className="mt-auto flex flex-wrap gap-2 pt-4">
           <Button
             variant="secondary"
@@ -120,16 +120,14 @@ function ClassCarouselCard({
           >
             Ver reservas
           </Button>
-          {booked === 0 ? (
-            <Button
-              variant="ghost"
-              className="h-9 px-3 text-xs text-danger sm:text-sm"
-              onClick={() => onCancelClass?.(classItem)}
-              isLoading={isCancelling}
-            >
-              Cancelar
-            </Button>
-          ) : null}
+          <Button
+            variant="ghost"
+            className="h-9 px-3 text-xs text-danger sm:text-sm"
+            onClick={() => onCancelClass?.(classItem)}
+            isLoading={isCancelling}
+          >
+            Cancelar
+          </Button>
         </div>
       ) : null}
     </div>

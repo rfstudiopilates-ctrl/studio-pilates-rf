@@ -57,8 +57,7 @@ export default function ClassDetailModal({
   }
 
   const displayClass = liveClassItem || classItem;
-  const canCancel =
-    displayClass.status === 'scheduled' && Number(displayClass.bookedCount || 0) === 0;
+  const canCancel = displayClass.status === 'scheduled';
   const used = Number(displayClass.bookedCount || 0);
   const total = Number(displayClass.capacity || 0);
   const rate = total > 0 ? Math.round((used / total) * 100) : 0;

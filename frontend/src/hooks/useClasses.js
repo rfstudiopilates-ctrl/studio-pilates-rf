@@ -57,6 +57,18 @@ export function useUpdateClass() {
   });
 }
 
+export function useCancelClass() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, payload }) => classesApi.cancel(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CLASSES_KEY });
+      queryClient.invalidateQueries({ queryKey: ['reservations'] });
+    },
+  });
+}
+
 export function useCancelFutureBySchedule() {
   const queryClient = useQueryClient();
 

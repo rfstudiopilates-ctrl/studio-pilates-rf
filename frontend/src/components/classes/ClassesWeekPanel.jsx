@@ -4,11 +4,13 @@ import ClassesDayDetail from './ClassesDayDetail';
 import ClassesMonthCalendar from './ClassesMonthCalendar';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
+import ConfirmModal from '../ui/ConfirmModal';
 import NavIcon from '../ui/NavIcon';
-import { useClassesCalendar, useGenerateClasses, useUpdateClass } from '../../hooks/useClasses';
+import { useCancelClass, useClassesCalendar, useGenerateClasses } from '../../hooks/useClasses';
 import { getErrorMessage } from '../../lib/formErrors';
 import {
   addMonthsToDate,
+  formatDateDisplay,
   formatMonthYear,
   getMonthCalendarDays,
   getMonthEndDate,
@@ -79,6 +81,7 @@ export default function ClassesWeekPanel() {
   const [monthStart, setMonthStart] = useState(getMonthStartDate(today));
   const [selectedDate, setSelectedDate] = useState(today);
   const [selectedClass, setSelectedClass] = useState(null);
+  const [classToCancel, setClassToCancel] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [now, setNow] = useState(() => getNowPartsInArgentina());
 
@@ -99,7 +102,7 @@ export default function ClassesWeekPanel() {
     to: calendarTo,
   });
   const generateClasses = useGenerateClasses();
-  const updateClass = useUpdateClass();
+  const cancelClass = useCancelClass();
 
   const grouped = useMemo(() => buildGroupedByDate(data), [data]);
   const visibleGrouped = useMemo(
@@ -178,22 +181,27 @@ export default function ClassesWeekPanel() {
     }
   }
 
-  async function handleCancelClass(classItem) {
-    if (
-      !window.confirm(`¿Cancelar la clase del ${classItem.classDate} a las ${classItem.startTime}?`)
-    ) {
+  async function handleConfirmCancelClass() {
+    if (!classToCancel) {
       return;
     }
 
     setFeedback(null);
 
     try {
-      await updateClass.mutateAsync({
-        id: classItem.id,
-        payload: { status: 'cancelled' },
-      });
+      const result = await cancelClass.mutateAsync({ id: classToCancel.id });
       setSelectedClass(null);
-      setFeedback({ type: 'success', message: 'Clase cancelada correctamente.' });
+      setClassToCancel(null);
+
+      const booked = Number(result.cancelledReservations || 0);
+      const returned = Number(result.returnedQuota || 0);
+      setFeedback({
+        type: 'success',
+        message:
+          booked > 0
+            ? `Clase cancelada. Se liberaron ${booked} reserva(s) y se devolvieron ${returned} cupo(s). Los clientes fueron notificados.`
+            : 'Clase cancelada correctamente.',
+      });
     } catch (error) {
       setFeedback({
         type: 'error',
@@ -309,8 +317,8 @@ export default function ClassesWeekPanel() {
               selectedDate={selectedDate}
               classes={selectedDayClasses}
               onSelectClass={setSelectedClass}
-              onCancelClass={handleCancelClass}
-              isCancelling={updateClass.isPending}
+              onCancelClass={setClassToCancel}
+              isCancelling={cancelClass.isPending}
             />
           </div>
         </div>
@@ -320,8 +328,8 @@ export default function ClassesWeekPanel() {
         open={Boolean(selectedClass)}
         classItem={selectedClass}
         onClose={() => setSelectedClass(null)}
-        onCancelClass={handleCancelClass}
-        isCancelling={updateClass.isPending}
+        onCancelClass={setClassToCancel}
+        isCancelling={cancelClass.isPending}
         onClassUpdated={(nextClass) => {
           if (!nextClass?.id) return;
           setSelectedClass((current) => {
@@ -337,6 +345,27 @@ export default function ClassesWeekPanel() {
             return { ...current, ...nextClass };
           });
         }}
+      />
+
+      <ConfirmModal
+        open={Boolean(classToCancel)}
+        onClose={() => {
+          if (!cancelClass.isPending) {
+            setClassToCancel(null);
+          }
+        }}
+        onConfirm={handleConfirmCancelClass}
+        title="Cancelar clase"
+        message={
+          classToCancel
+            ? Number(classToCancel.bookedCount || 0) > 0
+              ? `Vas a cancelar la clase del ${formatDateDisplay(classToCancel.classDate)} a las ${classToCancel.startTime}. Hay ${classToCancel.bookedCount} alumno(s): se les devolverá el cupo del abono y recibirán una notificación para recuperarla cualquier otro día del mes.`
+              : `¿Cancelar la clase del ${formatDateDisplay(classToCancel.classDate)} a las ${classToCancel.startTime}?`
+            : ''
+        }
+        confirmLabel="Cancelar clase"
+        cancelLabel="Volver"
+        isLoading={cancelClass.isPending}
       />
     </div>
   );
