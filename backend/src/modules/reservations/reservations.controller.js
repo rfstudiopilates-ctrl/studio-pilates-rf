@@ -101,13 +101,49 @@ export async function cancelMyReservation(req, res, next) {
 
 export async function createReservationAdmin(req, res, next) {
   try {
+    const clientId = req.validatedBody.clientId;
+    const { generatedClassId, recoveryCreditId, status, notes } = req.validatedBody;
+    const createdByAdminId = req.auth.sub;
+
+    if (recoveryCreditId) {
+      const reservation = await reservationsService.createReservation({
+        clientId,
+        generatedClassId,
+        recoveryCreditId,
+        status: status || 'confirmed',
+        bookingType: 'recovery',
+        notes,
+        createdByAdminId,
+      });
+      res.status(201).json({ success: true, data: { reservation } });
+      return;
+    }
+
+    await plansRepository.expireClientPlans();
+    const activePlan = await plansRepository.findActiveClientPlan(clientId);
+
+    // Sin plan: clase puntual → pending drop_in + flujo de plan individual/pago en el admin.
+    if (!activePlan) {
+      const reservation = await reservationsService.createReservation({
+        clientId,
+        generatedClassId,
+        status: 'pending',
+        bookingType: 'drop_in',
+        skipPlanCheck: true,
+        notes: notes || 'Clase puntual asignada por el administrador',
+        createdByAdminId,
+      });
+      res.status(201).json({ success: true, data: { reservation } });
+      return;
+    }
+
     const reservation = await reservationsService.createReservation({
-      clientId: req.validatedBody.clientId,
-      generatedClassId: req.validatedBody.generatedClassId,
-      recoveryCreditId: req.validatedBody.recoveryCreditId,
-      status: req.validatedBody.status,
-      notes: req.validatedBody.notes,
-      createdByAdminId: req.auth.sub,
+      clientId,
+      generatedClassId,
+      status: status || 'confirmed',
+      bookingType: 'standard',
+      notes,
+      createdByAdminId,
     });
     res.status(201).json({ success: true, data: { reservation } });
   } catch (error) {
