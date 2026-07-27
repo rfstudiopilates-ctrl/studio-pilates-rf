@@ -109,6 +109,35 @@ export async function createReservation(data, connection = pool) {
   return findReservationById(result.insertId, connection);
 }
 
+/**
+ * Reserva cancelada “marcador” en una clase ya liberada por cambio de horario.
+ * No consume cupo ni plan; solo deja rastro del día para el cupo semanal/fijos.
+ */
+export async function createVacatedReservationMarker(data, connection = pool) {
+  const [result] = await connection.query(
+    `INSERT INTO class_reservations (
+      client_id, generated_class_id, client_plan_id, recovery_credit_id,
+      recurring_reservation_id, status, booking_type, consumes_plan,
+      cancelled_at, cancelled_by, cancellation_reason, notes, created_by_admin_id
+    ) VALUES (?, ?, ?, NULL, NULL, 'cancelled', ?, 0, ?, 'system', ?, NULL, ?)`,
+    [
+      data.clientId,
+      data.generatedClassId,
+      data.clientPlanId || null,
+      data.bookingType || 'standard',
+      data.cancelledAt || new Date(),
+      data.cancellationReason,
+      data.createdByAdminId || null,
+    ]
+  );
+
+  return findReservationById(result.insertId, connection);
+}
+
+export async function deleteReservationById(id, connection = pool) {
+  await connection.query('DELETE FROM class_reservations WHERE id = ?', [id]);
+}
+
 export async function findReservationById(id, connection = pool) {
   const [rows] = await connection.query(`${reservationSelect} WHERE r.id = ?`, [id]);
   return mapReservationRow(rows[0]);
@@ -682,6 +711,45 @@ export async function markPastConfirmedAsCompleted({ beforeDate, clientId = null
   );
 
   return Number(result.affectedRows || 0);
+}
+
+export async function listApprovedScheduleChangesMissingVacatedMarker(
+  clientId = null,
+  connection = pool
+) {
+  const params = [];
+  let clientClause = '';
+
+  if (clientId != null) {
+    clientClause = 'AND scr.client_id = ?';
+    params.push(clientId);
+  }
+
+  const [rows] = await connection.query(
+    `SELECT
+       scr.client_id AS client_id,
+       scr.from_generated_class_id AS from_generated_class_id,
+       r.client_plan_id AS client_plan_id,
+       r.booking_type AS booking_type
+     FROM schedule_change_requests scr
+     INNER JOIN class_reservations r ON r.id = scr.reservation_id
+     WHERE scr.status = 'approved'
+       ${clientClause}
+       AND NOT EXISTS (
+         SELECT 1
+         FROM class_reservations x
+         WHERE x.client_id = scr.client_id
+           AND x.generated_class_id = scr.from_generated_class_id
+       )`,
+    params
+  );
+
+  return rows.map((row) => ({
+    clientId: Number(row.client_id),
+    fromGeneratedClassId: Number(row.from_generated_class_id),
+    clientPlanId: row.client_plan_id ? Number(row.client_plan_id) : null,
+    bookingType: row.booking_type || 'standard',
+  }));
 }
 
 export async function listActiveRecurringReservations() {

@@ -27,3 +27,9 @@ export const ACTIVE_RESERVATION_STATUSES = ['pending', 'confirmed'];
 export const PAUSED_RECURRING_CANCELLATION_REASON = 'Horario fijo pausado';
 
 export const CANCELLED_RECURRING_CANCELLATION_REASON = 'Horario fijo cancelado';
+
+/**
+ * Marcador en la clase origen tras un cambio de horario.
+ * Evita cupo semanal fantasma del fijo y que processRecurring recree ese día.
+ */
+export const SCHEDULE_CHANGE_VACATED_REASON = 'Cambio de horario';

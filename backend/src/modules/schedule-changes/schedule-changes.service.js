@@ -7,7 +7,11 @@ import {
 import { getSettings } from '../settings/settings.repository.js';
 import * as clientsRepository from '../clients/clients.repository.js';
 import * as classesRepository from '../classes/classes.repository.js';
+import * as plansRepository from '../plans/plans.repository.js';
+import { refreshPlanUsageCounters } from '../plans/plans.usage.js';
 import * as reservationsRepository from '../reservations/reservations.repository.js';
+import { processRecurringReservations } from '../reservations/reservations.service.js';
+import { SCHEDULE_CHANGE_VACATED_REASON } from '../reservations/reservations.constants.js';
 import * as scheduleChangesRepository from './schedule-changes.repository.js';
 import {
   notifyScheduleChangeApproved,
@@ -37,6 +41,11 @@ async function validateTargetClassForChange(generatedClassId, connection) {
   return classItem;
 }
 
+/**
+ * Mueve la reserva a otra clase y deja un marcador cancelado en el origen.
+ * Sin ese marcador, el fijo del día liberado cuenta como cupo semanal fantasma
+ * y puede bloquear otras clases de la misma semana (ej. miércoles).
+ */
 async function reassignReservation({
   reservation,
   fromClassId,
@@ -57,12 +66,13 @@ async function reassignReservation({
     connection
   );
 
-  if (
-    existingOnTarget &&
-    existingOnTarget.id !== reservation.id &&
-    ['pending', 'confirmed'].includes(existingOnTarget.status)
-  ) {
-    throw createAppError('El cliente ya tiene una reserva en la clase destino', 400);
+  if (existingOnTarget && existingOnTarget.id !== reservation.id) {
+    if (['pending', 'confirmed'].includes(existingOnTarget.status)) {
+      throw createAppError('El cliente ya tiene una reserva activa en la clase destino', 400);
+    }
+
+    // Libera UNIQUE cliente+clase si quedó una fila cancelada previa en el destino.
+    await reservationsRepository.deleteReservationById(existingOnTarget.id, connection);
   }
 
   await classesRepository.getClassByIdForUpdate(fromClassId, connection);
@@ -74,10 +84,41 @@ async function reassignReservation({
     connection
   );
 
+  const vacatedExisting = await reservationsRepository.findReservationByClientAndClass(
+    reservation.clientId,
+    fromClassId,
+    connection
+  );
+
+  if (!vacatedExisting) {
+    await reservationsRepository.createVacatedReservationMarker(
+      {
+        clientId: reservation.clientId,
+        generatedClassId: fromClassId,
+        clientPlanId: reservation.clientPlanId || null,
+        bookingType: reservation.bookingType || 'standard',
+        cancellationReason: SCHEDULE_CHANGE_VACATED_REASON,
+      },
+      connection
+    );
+  }
+
   await classesRepository.syncBookedCountFromReservations(fromClassId, connection);
   await classesRepository.syncBookedCountFromReservations(toClassId, connection);
 
   return updated;
+}
+
+async function rematerializeClientFixedSchedules(clientId) {
+  try {
+    await processRecurringReservations({ clientId });
+    const activePlan = await plansRepository.findActiveClientPlan(clientId);
+    if (activePlan?.id) {
+      await refreshPlanUsageCounters(activePlan.id);
+    }
+  } catch {
+    // El cron/job posterior puede completar; no fallar el approve.
+  }
 }
 
 export async function createScheduleChangeRequest({
@@ -251,6 +292,8 @@ export async function approveScheduleChangeRequest(id, adminId, payload = {}) {
 
     await connection.commit();
 
+    await rematerializeClientFixedSchedules(request.clientId);
+
     const fullRequest = await scheduleChangesRepository.findScheduleChangeById(id);
 
     runNotificationSafely(
@@ -367,6 +410,8 @@ export async function adminReassignReservation({
     });
 
     await connection.commit();
+
+    await rematerializeClientFixedSchedules(reservation.clientId);
 
     const fullRequest = await scheduleChangesRepository.findScheduleChangeById(updatedRequest.id);
 

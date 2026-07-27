@@ -25,7 +25,7 @@ import {
 } from '../finances/finances.service.js';
 import { PAYMENT_METHOD_LABELS } from '../finances/finances.constants.js';
 import * as reservationsRepository from './reservations.repository.js';
-import { ACTIVE_RESERVATION_STATUSES, PAUSED_RECURRING_CANCELLATION_REASON, CANCELLED_RECURRING_CANCELLATION_REASON } from './reservations.constants.js';
+import { ACTIVE_RESERVATION_STATUSES, PAUSED_RECURRING_CANCELLATION_REASON, CANCELLED_RECURRING_CANCELLATION_REASON, SCHEDULE_CHANGE_VACATED_REASON } from './reservations.constants.js';
 import {
   getFixedScheduleSlotLimit,
   planAllowsFixedSchedules,
@@ -1348,6 +1348,27 @@ export async function listMyRecurring(clientId) {
 export async function processRecurringReservations(options = {}) {
   await reservationsRepository.expireRecoveryCredits();
   await plansRepository.expireClientPlans();
+
+  // Repara cambios de horario ya aprobados sin marcador en la clase origen
+  // (evita cupo semanal fantasma que bloquea otros fijos de la semana).
+  const missingVacated = await reservationsRepository.listApprovedScheduleChangesMissingVacatedMarker(
+    options.clientId || null
+  );
+
+  for (const item of missingVacated) {
+    try {
+      await reservationsRepository.createVacatedReservationMarker({
+        clientId: item.clientId,
+        generatedClassId: item.fromGeneratedClassId,
+        clientPlanId: item.clientPlanId,
+        bookingType: item.bookingType,
+        cancellationReason: SCHEDULE_CHANGE_VACATED_REASON,
+      });
+      await classesRepository.syncBookedCountFromReservations(item.fromGeneratedClassId);
+    } catch {
+      // Continuar: UNIQUE u otra carrera no debe frenar la generación.
+    }
+  }
 
   let recurringList = await reservationsRepository.listActiveRecurringReservations();
 
