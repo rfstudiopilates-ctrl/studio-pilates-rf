@@ -41,6 +41,8 @@ function NewReservationForm({
   isFull,
   compact = false,
 }) {
+  const needsIndividualPlan = Boolean(selectedClient?.id && !selectedClient?.activePlanId);
+
   return (
     <div
       className={
@@ -66,24 +68,34 @@ function NewReservationForm({
           placeholder="Buscar alumno..."
           value={selectedClient}
           onChange={setSelectedClient}
-          status="active"
+          excludeSuspended
           disabled={isFull}
         />
-        <Select
-          label="Estado"
-          value={status}
-          onChange={(event) => setStatus(event.target.value)}
-        >
-          <option value="confirmed">Confirmada</option>
-          <option value="pending">Pendiente</option>
-        </Select>
+        {!needsIndividualPlan ? (
+          <Select
+            label="Estado"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+            disabled={isFull}
+          >
+            <option value="confirmed">Confirmada</option>
+            <option value="pending">Pendiente</option>
+          </Select>
+        ) : (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5 sm:min-h-11 sm:self-end">
+            <p className="text-xs font-medium text-text">Sin plan activo</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
+              Se asignará clase individual y el pago al confirmar.
+            </p>
+          </div>
+        )}
         <Button
           className={compact ? 'w-full sm:h-11 sm:w-auto sm:min-w-[8.5rem]' : 'w-full'}
           onClick={onCreate}
           isLoading={isCreating}
           disabled={!selectedClient?.id || isFull}
         >
-          Crear reserva
+          {needsIndividualPlan ? 'Continuar' : 'Crear reserva'}
         </Button>
       </div>
     </div>
@@ -286,13 +298,24 @@ export default function ClassReservationsPanel({
     setFeedback(null);
 
     try {
-      await createReservation.mutateAsync({
+      const reservation = await createReservation.mutateAsync({
         clientId: Number(selectedClient.id),
         generatedClassId: classItem.id,
         status,
       });
-      setFeedback({ type: 'success', message: 'Reserva creada correctamente.' });
+
       setSelectedClient(null);
+
+      if (reservation?.bookingType === 'drop_in' && reservation?.status === 'pending') {
+        setGuestReservation(reservation);
+        setFeedback({
+          type: 'success',
+          message: 'Cliente sin plan: completá el plan individual y el cobro para confirmar el turno.',
+        });
+        return;
+      }
+
+      setFeedback({ type: 'success', message: 'Reserva creada correctamente.' });
     } catch (error) {
       setFeedback({
         type: 'error',

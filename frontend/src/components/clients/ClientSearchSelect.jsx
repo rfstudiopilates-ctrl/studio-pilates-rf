@@ -17,7 +17,8 @@ export default function ClientSearchSelect({
   label = 'Buscar cliente',
   value = null,
   onChange,
-  status = 'active',
+  status,
+  excludeSuspended = true,
   placeholder = 'Nombre, usuario o teléfono',
   minChars = 2,
   limit = 8,
@@ -41,7 +42,7 @@ export default function ClientSearchSelect({
       q: searchTerm || undefined,
       status: status || undefined,
       page: 1,
-      limit,
+      limit: Math.max(limit, 12),
       sortBy: 'fullName',
       sortOrder: 'asc',
     },
@@ -50,7 +51,12 @@ export default function ClientSearchSelect({
     }
   );
 
-  const results = clientsData?.items || [];
+  const results = (clientsData?.items || []).filter((client) => {
+    if (excludeSuspended && client.status === 'suspended') {
+      return false;
+    }
+    return true;
+  }).slice(0, limit);
   const showResults = canSearch && isOpen && results.length > 0;
   const showEmpty =
     canSearch && isOpen && !isFetching && results.length === 0 && searchTerm.length >= minChars;
@@ -168,9 +174,12 @@ export default function ClientSearchSelect({
             <p className="truncate text-xs text-text-muted">
               @{value.username}
               {value.phone ? ` · ${value.phone}` : ''}
+              {value.activePlanName ? ` · ${value.activePlanName}` : ' · Sin plan'}
             </p>
           </div>
-          {value.status ? <ClientStatusBadge status={value.status} /> : null}
+          {value.status ? (
+            <ClientStatusBadge status={value.status} outstandingDebt={value.outstandingDebt} />
+          ) : null}
         </div>
       ) : null}
 
@@ -215,9 +224,13 @@ export default function ClientSearchSelect({
                     <p className="truncate text-xs text-text-muted">
                       @{client.username}
                       {client.phone ? ` · ${client.phone}` : ''}
+                      {client.activePlanName ? ` · ${client.activePlanName}` : ' · Sin plan'}
                     </p>
                   </div>
-                  <ClientStatusBadge status={client.status} />
+                  <ClientStatusBadge
+                    status={client.status}
+                    outstandingDebt={client.outstandingDebt}
+                  />
                 </button>
               </li>
             );
