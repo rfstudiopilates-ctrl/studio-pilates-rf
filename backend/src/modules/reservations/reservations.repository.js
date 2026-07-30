@@ -119,7 +119,7 @@ export async function createVacatedReservationMarker(data, connection = pool) {
       client_id, generated_class_id, client_plan_id, recovery_credit_id,
       recurring_reservation_id, status, booking_type, consumes_plan,
       cancelled_at, cancelled_by, cancellation_reason, notes, created_by_admin_id
-    ) VALUES (?, ?, ?, NULL, NULL, 'cancelled', ?, 0, ?, 'system', ?, NULL, ?)`,
+    ) VALUES (?, ?, ?, NULL, NULL, 'cancelled', ?, 0, ?, 'admin', ?, NULL, ?)`,
     [
       data.clientId,
       data.generatedClassId,

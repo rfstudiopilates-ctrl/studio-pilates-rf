@@ -820,7 +820,7 @@ export async function completePastActiveReservations({ clientId = null } = {}) {
     try {
       await cancelReservation({
         reservationId: reservation.id,
-        cancelledBy: 'system',
+        cancelledBy: 'admin',
         cancellationReason: 'Clase vencida sin confirmar',
         silent: true,
         skipRecoveryCredit: true,
