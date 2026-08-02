@@ -85,6 +85,21 @@ export async function findPendingByReservationId(reservationId, connection = poo
   const [rows] = await connection.query(
     `${baseSelect}
      WHERE scr.reservation_id = ? AND scr.status = 'pending'
+     ORDER BY scr.id DESC
+     LIMIT 1`,
+    [reservationId]
+  );
+
+  return mapScheduleChangeRow(rows[0]);
+}
+
+/** Última solicitud rechazada/cancelada reutilizable para reenviar el mismo cambio. */
+export async function findReusableByReservationId(reservationId, connection = pool) {
+  const [rows] = await connection.query(
+    `${baseSelect}
+     WHERE scr.reservation_id = ?
+       AND scr.status IN ('rejected', 'cancelled')
+     ORDER BY scr.id DESC
      LIMIT 1`,
     [reservationId]
   );
@@ -147,6 +162,8 @@ export async function updateScheduleChange(id, updates, connection = pool) {
   const params = [];
   const mapping = {
     status: 'status',
+    reason: 'reason',
+    fromGeneratedClassId: 'from_generated_class_id',
     toGeneratedClassId: 'to_generated_class_id',
     adminNotes: 'admin_notes',
     reviewedByAdminId: 'reviewed_by_admin_id',

@@ -161,36 +161,53 @@ export async function createScheduleChangeRequest({
       throw createAppError('Debés elegir una clase distinta a la actual', 400);
     }
 
+    await validateTargetClassForChange(toGeneratedClassId, connection);
+
     const pending = await scheduleChangesRepository.findPendingByReservationId(
       reservationId,
       connection
     );
+    const reusable =
+      pending ||
+      (await scheduleChangesRepository.findReusableByReservationId(reservationId, connection));
 
-    if (pending) {
-      throw createAppError('Ya tenés una solicitud de cambio pendiente para esta reserva', 400);
-    }
+    const reopenPayload = {
+      status: 'pending',
+      fromGeneratedClassId: reservation.generatedClassId,
+      toGeneratedClassId,
+      reason: reason || reusable?.reason || null,
+      adminNotes: null,
+      reviewedByAdminId: null,
+      reviewedAt: null,
+    };
 
-    await validateTargetClassForChange(toGeneratedClassId, connection);
+    const request = reusable
+      ? await scheduleChangesRepository.updateScheduleChange(reusable.id, reopenPayload, connection)
+      : await scheduleChangesRepository.createScheduleChangeRequest(
+          {
+            reservationId,
+            clientId,
+            fromGeneratedClassId: reservation.generatedClassId,
+            toGeneratedClassId,
+            reason,
+          },
+          connection
+        );
 
-    const request = await scheduleChangesRepository.createScheduleChangeRequest(
-      {
-        reservationId,
-        clientId,
-        fromGeneratedClassId: reservation.generatedClassId,
-        toGeneratedClassId,
-        reason,
-      },
-      connection
-    );
+    const wasResubmit = Boolean(reusable);
 
     await clientsRepository.createClientHistory({
       clientId,
       actionType: 'client_updated',
-      description: `Solicitud de cambio de horario creada`,
+      description: wasResubmit
+        ? 'Solicitud de cambio de horario reenviada'
+        : 'Solicitud de cambio de horario creada',
       metadata: {
         scheduleChangeRequestId: request.id,
         fromClassId: reservation.generatedClassId,
         toClassId: toGeneratedClassId,
+        resubmitted: wasResubmit,
+        previousStatus: reusable?.status || null,
       },
       performedByType: 'client',
       performedById: clientId,
@@ -374,21 +391,33 @@ export async function adminReassignReservation({
       connection,
     });
 
-    const request = await scheduleChangesRepository.createScheduleChangeRequest(
-      {
-        reservationId,
-        clientId: reservation.clientId,
-        fromGeneratedClassId: fromClassId,
-        toGeneratedClassId,
-        reason: adminNotes || 'Reasignación directa por el administrador',
-      },
+    const existingPending = await scheduleChangesRepository.findPendingByReservationId(
+      reservationId,
       connection
     );
+
+    const request =
+      existingPending ||
+      (await scheduleChangesRepository.createScheduleChangeRequest(
+        {
+          reservationId,
+          clientId: reservation.clientId,
+          fromGeneratedClassId: fromClassId,
+          toGeneratedClassId,
+          reason: adminNotes || 'Reasignación directa por el administrador',
+        },
+        connection
+      ));
 
     const updatedRequest = await scheduleChangesRepository.updateScheduleChange(
       request.id,
       {
         status: 'approved',
+        fromGeneratedClassId: fromClassId,
+        toGeneratedClassId,
+        reason: existingPending
+          ? existingPending.reason || adminNotes || 'Reasignación directa por el administrador'
+          : adminNotes || 'Reasignación directa por el administrador',
         adminNotes: adminNotes || null,
         reviewedByAdminId: adminId,
         reviewedAt: new Date(),
