@@ -6,6 +6,7 @@ import {
   canCancelClass,
   getHoursUntilClass,
   getMonthStartDate,
+  getNowPartsInArgentina,
   getPlanEndDate,
   getTodayInArgentina,
   getWeekStartDate,
@@ -812,10 +813,12 @@ export async function cancelReservation({
 }
 
 export async function completePastActiveReservations({ clientId = null } = {}) {
-  const today = getTodayInArgentina();
+  const now = getNowPartsInArgentina();
+  const today = now.date;
 
   const pastActives = await reservationsRepository.listActivePastReservations({
     beforeDate: today,
+    beforeTime: now.time,
     clientId,
   });
 
@@ -842,6 +845,7 @@ export async function completePastActiveReservations({ clientId = null } = {}) {
 
   const completedConfirmed = await reservationsRepository.markPastConfirmedAsCompleted({
     beforeDate: today,
+    beforeTime: now.time,
     clientId,
   });
 

@@ -668,10 +668,22 @@ export async function listActiveReservationsByClient(clientId, connection = pool
   return rows.map(mapReservationRow);
 }
 
-/** Reservas activas con clase anterior a beforeDate. */
-export async function listActivePastReservations({ beforeDate, clientId = null }, connection = pool) {
+/** Reservas activas cuya clase ya terminó (día anterior o hoy con end_time vencido). */
+export async function listActivePastReservations(
+  { beforeDate, beforeTime = null, clientId = null },
+  connection = pool
+) {
   const params = [beforeDate];
   let clientClause = '';
+  let timeClause = '';
+
+  if (beforeTime) {
+    timeClause = `OR (
+         gc.class_date = ?
+         AND TIME_FORMAT(gc.end_time, '%H:%i') <= ?
+       )`;
+    params.push(beforeDate, String(beforeTime).slice(0, 5));
+  }
 
   if (clientId != null) {
     clientClause = 'AND r.client_id = ?';
@@ -681,7 +693,10 @@ export async function listActivePastReservations({ beforeDate, clientId = null }
   const [rows] = await connection.query(
     `${reservationSelect}
      WHERE r.status IN ('pending', 'confirmed')
-       AND gc.class_date < ?
+       AND (
+         gc.class_date < ?
+         ${timeClause}
+       )
        ${clientClause}
      ORDER BY gc.class_date ASC, gc.start_time ASC`,
     params
@@ -691,9 +706,21 @@ export async function listActivePastReservations({ beforeDate, clientId = null }
 }
 
 /** Marca confirmadas vencidas como completed (no libera cupo: la clase ya ocurrió). */
-export async function markPastConfirmedAsCompleted({ beforeDate, clientId = null }, connection = pool) {
+export async function markPastConfirmedAsCompleted(
+  { beforeDate, beforeTime = null, clientId = null },
+  connection = pool
+) {
   const params = [beforeDate];
   let clientClause = '';
+  let timeClause = '';
+
+  if (beforeTime) {
+    timeClause = `OR (
+         gc.class_date = ?
+         AND TIME_FORMAT(gc.end_time, '%H:%i') <= ?
+       )`;
+    params.push(beforeDate, String(beforeTime).slice(0, 5));
+  }
 
   if (clientId != null) {
     clientClause = 'AND r.client_id = ?';
@@ -705,7 +732,10 @@ export async function markPastConfirmedAsCompleted({ beforeDate, clientId = null
      INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
      SET r.status = 'completed'
      WHERE r.status = 'confirmed'
-       AND gc.class_date < ?
+       AND (
+         gc.class_date < ?
+         ${timeClause}
+       )
        ${clientClause}`,
     params
   );
