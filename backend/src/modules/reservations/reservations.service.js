@@ -25,7 +25,16 @@ import {
 } from '../finances/finances.service.js';
 import { PAYMENT_METHOD_LABELS } from '../finances/finances.constants.js';
 import * as reservationsRepository from './reservations.repository.js';
-import { ACTIVE_RESERVATION_STATUSES, PAUSED_RECURRING_CANCELLATION_REASON, CANCELLED_RECURRING_CANCELLATION_REASON, SCHEDULE_CHANGE_VACATED_REASON } from './reservations.constants.js';
+import {
+  ACTIVE_RESERVATION_STATUSES,
+  PAUSED_RECURRING_CANCELLATION_REASON,
+  CANCELLED_RECURRING_CANCELLATION_REASON,
+  PLAN_CANCELLED_REASON,
+  CLIENT_DEACTIVATED_REASON,
+  CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
+  SCHEDULE_CHANGE_VACATED_REASON,
+  REACTIVATABLE_SYSTEM_CANCELLATION_REASONS,
+} from './reservations.constants.js';
 import {
   getFixedScheduleSlotLimit,
   planAllowsFixedSchedules,
@@ -870,7 +879,7 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
         await cancelReservation({
           reservationId: reservation.id,
           cancelledBy: 'admin',
-          cancellationReason: 'Plan cancelado',
+          cancellationReason: PLAN_CANCELLED_REASON,
           adminId,
           silent: true,
           skipRecoveryCredit: true,
@@ -896,7 +905,7 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
       await cancelReservation({
         reservationId: reservation.id,
         cancelledBy: 'admin',
-        cancellationReason: 'Plan cancelado',
+        cancellationReason: PLAN_CANCELLED_REASON,
         adminId,
         silent: true,
         skipRecoveryCredit: true,
@@ -944,7 +953,7 @@ export async function releaseBookingsAfterClientDeactivate({ clientId, adminId }
         await cancelReservation({
           reservationId: reservation.id,
           cancelledBy: 'admin',
-          cancellationReason: 'Cliente desactivado',
+          cancellationReason: CLIENT_DEACTIVATED_REASON,
           adminId,
           silent: true,
           skipRecoveryCredit: true,
@@ -970,7 +979,7 @@ export async function releaseBookingsAfterClientDeactivate({ clientId, adminId }
       await cancelReservation({
         reservationId: reservation.id,
         cancelledBy: 'admin',
-        cancellationReason: 'Cliente desactivado',
+        cancellationReason: CLIENT_DEACTIVATED_REASON,
         adminId,
         silent: true,
         skipRecoveryCredit: true,
@@ -1018,7 +1027,7 @@ export async function cleanupOrphanRecurringForDeletedClients({ adminId = null }
         await cancelReservation({
           reservationId: reservation.id,
           cancelledBy: 'admin',
-          cancellationReason: 'Cliente desactivado (limpieza de horario fijo)',
+          cancellationReason: CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
           adminId,
           silent: true,
           skipRecoveryCredit: true,
@@ -1460,13 +1469,15 @@ export async function processRecurringReservations(options = {}) {
           continue;
         }
 
-        // Si el cliente/admin canceló esa fecha puntual, respetarlo.
-        // Solo reactivar reservas canceladas al pausar el fijo.
-        const canReactivateFromPause =
+        // Reactivar solo cancelaciones de sistema (plan cancelado, pausa, etc.).
+        // Respetar cancelaciones puntuales del cliente y marcadores de cambio de horario.
+        const canReactivateCancelled =
           existing.status === 'cancelled' &&
-          existing.cancellationReason === PAUSED_RECURRING_CANCELLATION_REASON;
+          existing.cancelledBy !== 'client' &&
+          existing.cancellationReason !== SCHEDULE_CHANGE_VACATED_REASON &&
+          REACTIVATABLE_SYSTEM_CANCELLATION_REASONS.includes(existing.cancellationReason);
 
-        if (!canReactivateFromPause) {
+        if (!canReactivateCancelled) {
           skipped += 1;
           continue;
         }

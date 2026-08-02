@@ -28,8 +28,27 @@ export const PAUSED_RECURRING_CANCELLATION_REASON = 'Horario fijo pausado';
 
 export const CANCELLED_RECURRING_CANCELLATION_REASON = 'Horario fijo cancelado';
 
+export const PLAN_CANCELLED_REASON = 'Plan cancelado';
+
+export const CLIENT_DEACTIVATED_REASON = 'Cliente desactivado';
+
+export const CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON =
+  'Cliente desactivado (limpieza de horario fijo)';
+
 /**
  * Marcador en la clase origen tras un cambio de horario.
  * Evita cupo semanal fantasma del fijo y que processRecurring recree ese día.
  */
 export const SCHEDULE_CHANGE_VACATED_REASON = 'Cambio de horario';
+
+/**
+ * Cancelaciones de sistema que SÍ se pueden reactivar al volver a materializar un fijo.
+ * No incluye cancelaciones puntuales del cliente ni marcadores de cambio de horario.
+ */
+export const REACTIVATABLE_SYSTEM_CANCELLATION_REASONS = [
+  PAUSED_RECURRING_CANCELLATION_REASON,
+  CANCELLED_RECURRING_CANCELLATION_REASON,
+  PLAN_CANCELLED_REASON,
+  CLIENT_DEACTIVATED_REASON,
+  CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
+];
