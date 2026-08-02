@@ -32,6 +32,7 @@ import {
   formatDateDisplay,
   getTodayInArgentina,
   getWeekStartDate,
+  isClassEnded,
   isClassPast,
   normalizeDateInput,
 } from '../../lib/dates';
@@ -215,9 +216,11 @@ export default function ClientReservationsPage() {
       (reservationsData?.items || []).filter((item) => {
         if (!['pending', 'confirmed'].includes(item.status)) return false;
         const dateKey = normalizeDateInput(item.classDate);
-        return dateKey && dateKey >= today;
+        if (!dateKey) return false;
+        // Ocultar apenas termina (no solo al cambiar el día).
+        return !isClassEnded(dateKey, item.endTime);
       }),
-    [reservationsData, today]
+    [reservationsData]
   );
 
   const reservedClassIds = useMemo(

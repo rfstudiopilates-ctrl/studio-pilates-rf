@@ -20,6 +20,7 @@ import {
   addDaysToDate,
   formatDateDisplay,
   getTodayInArgentina,
+  isClassEnded,
   normalizeDateInput,
 } from '../../lib/dates';
 
@@ -317,7 +318,8 @@ export default function ClientDashboardPage() {
       .filter((item) => ['pending', 'confirmed'].includes(item.status))
       .filter((item) => {
         const dateKey = normalizeDateInput(item.classDate);
-        return dateKey && dateKey >= today;
+        if (!dateKey) return false;
+        return !isClassEnded(dateKey, item.endTime);
       })
       .sort((a, b) => {
         const dateCmp = String(a.classDate).localeCompare(String(b.classDate));
@@ -326,7 +328,7 @@ export default function ClientDashboardPage() {
       });
 
     return items.slice(0, 5);
-  }, [reservationsData, today]);
+  }, [reservationsData]);
 
   const firstName = user?.fullName?.split(' ')?.[0] || 'Cliente';
 
