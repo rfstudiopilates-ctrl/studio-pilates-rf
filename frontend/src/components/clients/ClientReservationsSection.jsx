@@ -132,7 +132,7 @@ export function ClientReservationsSection({ clientId }) {
               ? `Horario fijo asignado. Se reservaron ${created} clases de ese turno. ${errors} no se pudieron crear${firstError ? `: ${firstError}` : '.'}`
               : `Horario fijo asignado. Se reservaron ${created} clases de ese turno en las próximas semanas.`
             : firstError ||
-              'No se pudieron generar las reservas del horario fijo. Revisá cupos del plan y del turno.',
+              'El horario fijo quedó asignado, pero no se generaron reservas nuevas. Si el cliente ya tenía cancelaciones previas de ese turno, probá Generar clases o quitá y volvé a asignar el fijo.',
       });
     } catch (error) {
       setFeedback({

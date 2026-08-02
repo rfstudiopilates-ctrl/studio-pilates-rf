@@ -233,6 +233,33 @@ export function isClassPast(classDate, startTime, now = getNowPartsInArgentina()
   return timeToMinutes(startTime) <= timeToMinutes(now.time);
 }
 
+/**
+ * True si la clase ya terminó (usa endTime).
+ * Útil en vistas admin para seguir mostrando la clase en curso.
+ */
+export function isClassEnded(classDate, endTime, now = getNowPartsInArgentina()) {
+  const date = normalizeDateInput(classDate);
+
+  if (!date) {
+    return true;
+  }
+
+  if (date < now.date) {
+    return true;
+  }
+
+  if (date > now.date) {
+    return false;
+  }
+
+  const end = String(endTime || '').trim();
+  if (!end) {
+    return false;
+  }
+
+  return timeToMinutes(end) <= timeToMinutes(now.time);
+}
+
 export function getIsoWeekday(dateString) {
   const date = new Date(`${normalizeDateInput(dateString)}T12:00:00`);
   const day = date.getDay();

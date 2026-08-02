@@ -17,7 +17,7 @@ import {
   getMonthStartDate,
   getNowPartsInArgentina,
   getTodayInArgentina,
-  isClassPast,
+  isClassEnded,
   normalizeDateInput,
 } from '../../lib/dates';
 
@@ -51,7 +51,7 @@ function buildGroupedByDate(data) {
   return grouped;
 }
 
-/** Oculta días pasados y horarios de hoy que ya empezaron (hora Argentina). */
+/** Oculta días pasados y horarios de hoy que ya terminaron (la clase en curso sigue visible). */
 function filterUpcomingClasses(grouped, today, now) {
   const next = {};
 
@@ -62,7 +62,7 @@ function filterUpcomingClasses(grouped, today, now) {
 
     if (dateKey === today) {
       const upcoming = classes.filter(
-        (item) => !isClassPast(item.classDate, item.startTime, now)
+        (item) => !isClassEnded(item.classDate, item.endTime || item.startTime, now)
       );
       if (upcoming.length > 0) {
         next[dateKey] = upcoming;

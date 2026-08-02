@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { CLASS_STATUS_LABELS } from '../../constants/schedules';
-import { formatDateDisplay } from '../../lib/dates';
+import {
+  formatDateDisplay,
+  getNowPartsInArgentina,
+  isClassEnded,
+  isClassPast,
+  normalizeDateInput,
+} from '../../lib/dates';
 import { Button } from '../ui/Button';
 import NavIcon from '../ui/NavIcon';
 
@@ -12,6 +18,22 @@ function getStatusBadgeClass(status) {
     return 'bg-surface-muted text-text-muted border-border';
   }
   return 'bg-brand-50 text-text border-brand-100';
+}
+
+function isClassInProgress(classItem, now = getNowPartsInArgentina()) {
+  if (!classItem || classItem.status !== 'scheduled') {
+    return false;
+  }
+
+  const dateKey = normalizeDateInput(classItem.classDate);
+  if (!dateKey || dateKey !== now.date) {
+    return false;
+  }
+
+  return (
+    isClassPast(dateKey, classItem.startTime, now) &&
+    !isClassEnded(dateKey, classItem.endTime || classItem.startTime, now)
+  );
 }
 
 function getOccupancyTone(classItem) {
@@ -80,6 +102,7 @@ function ClassCarouselCard({
   const booked = Number(classItem.bookedCount || 0);
   const capacity = Number(classItem.capacity || 0);
   const free = Math.max(0, capacity - booked);
+  const inProgress = isClassInProgress(classItem);
 
   return (
     <div className={`flex h-full min-h-46 flex-col rounded-2xl border p-4 ${getCardToneClass(tone)}`}>
@@ -95,16 +118,25 @@ function ClassCarouselCard({
           <p className="mt-1 text-sm text-text-muted">
             {classItem.status === 'cancelled'
               ? 'Clase cancelada'
-              : classItem.isFull
-                ? 'Completa · sin cupos'
-                : `${free} cupo${free === 1 ? '' : 's'} libre${free === 1 ? '' : 's'}`}
+              : inProgress
+                ? 'En curso ahora'
+                : classItem.isFull
+                  ? 'Completa · sin cupos'
+                  : `${free} cupo${free === 1 ? '' : 's'} libre${free === 1 ? '' : 's'}`}
           </p>
         </div>
-        <span
-          className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:text-xs ${getStatusBadgeClass(classItem.status)}`}
-        >
-          {CLASS_STATUS_LABELS[classItem.status]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {inProgress ? (
+            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800 sm:text-xs">
+              En curso
+            </span>
+          ) : null}
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold sm:text-xs ${getStatusBadgeClass(classItem.status)}`}
+          >
+            {CLASS_STATUS_LABELS[classItem.status]}
+          </span>
+        </div>
       </button>
 
       {classItem.status !== 'cancelled' ? (
