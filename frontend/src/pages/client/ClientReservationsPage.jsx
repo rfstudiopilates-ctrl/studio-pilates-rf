@@ -342,7 +342,8 @@ export default function ClientReservationsPage() {
       });
       setFeedback({
         type: 'success',
-        message: 'Solicitud de cambio enviada. El estudio la revisará pronto.',
+        message:
+          'Solicitud de cambio enviada. El estudio la revisará pronto.',
       });
       setChangingReservation(null);
       clearFeedbackLater();
