@@ -40,6 +40,15 @@ export const renewPlanSchema = z.object({
   clientPlanId: z.coerce.number().int().positive().optional(),
 });
 
+export const consumeCatchUpSchema = z.object({
+  quantity: z.coerce.number().int().min(1, 'Indicá al menos 1 cupo').max(50),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Indicá el motivo (mínimo 3 caracteres)')
+    .max(500, 'El motivo es demasiado largo'),
+});
+
 export const listClientPlansQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),

@@ -509,4 +509,90 @@ export async function cancelClientPlan(clientPlanId, adminId, payload = {}) {
   };
 }
 
+/**
+ * Registra cupos de recuperación (catch-up) como ya usados, con motivo.
+ * Baja catchUpSlots sin inventar reservas de clases.
+ */
+export async function consumeCatchUpSlots(clientPlanId, payload, adminId) {
+  const clientPlan = await plansRepository.findClientPlanById(clientPlanId);
+
+  if (!clientPlan) {
+    throw createAppError('Asignación de plan no encontrada', 404);
+  }
+
+  if (clientPlan.status !== 'active') {
+    throw createAppError('Solo se pueden ajustar cupos de un plan activo', 400);
+  }
+
+  const quantity = Number(payload.quantity);
+  const reason = String(payload.reason || '').trim();
+
+  if (!(quantity >= 1)) {
+    throw createAppError('Indicá al menos 1 cupo', 400);
+  }
+
+  if (reason.length < 3) {
+    throw createAppError('Indicá el motivo del ajuste', 400);
+  }
+
+  const syncedBefore = await syncClientPlanCounters(clientPlan);
+  const catchUpSlots = Number(
+    syncedBefore?.availability?.catchUpSlots ?? syncedBefore?.catchUpSlots ?? 0
+  );
+
+  if (catchUpSlots <= 0) {
+    throw createAppError('Este plan no tiene clases de recuperación disponibles para descontar', 400);
+  }
+
+  if (quantity > catchUpSlots) {
+    throw createAppError(
+      `Solo hay ${catchUpSlots} clase${catchUpSlots === 1 ? '' : 's'} de recuperación. No podés descontar ${quantity}.`,
+      400
+    );
+  }
+
+  const monthlyLimit = Number(clientPlan.monthlyClassesLimit || 0);
+  const monthlyUsed = Number(syncedBefore?.monthlyClassesUsed || 0);
+  if (monthlyUsed + quantity > monthlyLimit) {
+    throw createAppError(
+      'El ajuste supera el cupo total del abono. Revisá la cantidad.',
+      400
+    );
+  }
+
+  const adjustment = await plansRepository.createUsageAdjustment({
+    clientPlanId: clientPlan.id,
+    quantity,
+    reason,
+    createdByAdminId: adminId,
+  });
+
+  const syncedPlan = await syncClientPlanCounters(clientPlan);
+
+  await clientsRepository.createClientHistory({
+    clientId: clientPlan.clientId,
+    actionType: 'client_updated',
+    description: `Cupos de recuperación descontados: ${quantity}. Motivo: ${reason}`,
+    metadata: {
+      clientPlanId: clientPlan.id,
+      quantity,
+      reason,
+      adjustmentId: adjustment.id,
+      catchUpBefore: catchUpSlots,
+      catchUpAfter: syncedPlan?.availability?.catchUpSlots ?? syncedPlan?.catchUpSlots ?? 0,
+      monthlyClassesUsed: syncedPlan?.monthlyClassesUsed,
+    },
+    performedById: adminId,
+  });
+
+  return {
+    message:
+      quantity === 1
+        ? 'Se descontó 1 clase de recuperación del cupo.'
+        : `Se descontaron ${quantity} clases de recuperación del cupo.`,
+    adjustment,
+    clientPlan: syncedPlan,
+  };
+}
+
 export { getPlanAvailability };

@@ -111,6 +111,37 @@ export async function ensureSchemaPatches() {
     );
     console.log('[DB] Canal in_app habilitado en notification_logs.channel');
   }
+
+  // Ajustes manuales de cupo (catch-up ya usado fuera del sistema).
+  const [usageAdjTables] = await pool.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'client_plan_usage_adjustments'`
+  );
+
+  if (Number(usageAdjTables[0].total) === 0) {
+    await pool.query(`
+      CREATE TABLE client_plan_usage_adjustments (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        client_plan_id INT UNSIGNED NOT NULL,
+        quantity SMALLINT UNSIGNED NOT NULL,
+        reason VARCHAR(500) NOT NULL,
+        created_by_admin_id INT UNSIGNED NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_usage_adj_plan (client_plan_id),
+        KEY idx_usage_adj_created (created_at),
+        CONSTRAINT fk_usage_adj_client_plan
+          FOREIGN KEY (client_plan_id) REFERENCES client_plans (id)
+          ON DELETE CASCADE,
+        CONSTRAINT fk_usage_adj_admin
+          FOREIGN KEY (created_by_admin_id) REFERENCES users (id)
+          ON DELETE SET NULL
+      ) ENGINE=InnoDB
+    `);
+    console.log('[DB] Tabla creada: client_plan_usage_adjustments');
+  }
 }
 
 export async function verifyRequiredSchema() {

@@ -153,7 +153,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
   const weekStart = getWeekStartDate(normalizedClassDate);
   const weekEnd = addDaysToDate(weekStart, 6);
 
-  const [weeklyUsed, monthlyUsed] = await Promise.all([
+  const [weeklyUsed, reservationUsed, manualUsed] = await Promise.all([
     countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db, {
       excludeDate: normalizedClassDate,
     }),
@@ -164,12 +164,13 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
       planEnd,
       db
     ),
+    plansRepository.sumUsageAdjustments(clientPlan.id, db),
   ]);
 
   return buildAvailability({
     clientPlan,
     weeklyUsed,
-    monthlyUsed,
+    monthlyUsed: reservationUsed + manualUsed,
     asOfDate: normalizedClassDate,
   });
 }
@@ -187,7 +188,7 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
   const weekEnd = addDaysToDate(weekStart, 6);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
 
-  const [weeklyUsed, monthlyUsed] = await Promise.all([
+  const [weeklyUsed, reservationUsed, manualUsed] = await Promise.all([
     countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db),
     countConsumingReservationsInRange(
       clientPlan.clientId,
@@ -196,7 +197,10 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
       planEnd,
       db
     ),
+    plansRepository.sumUsageAdjustments(clientPlanId, db),
   ]);
+
+  const monthlyUsed = reservationUsed + manualUsed;
 
   await plansRepository.updateClientPlanUsage(
     clientPlanId,
@@ -224,6 +228,7 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     monthResetAt: planStart,
     catchUpSlots: availability.catchUpSlots,
     expectedUsed: availability.expectedUsed,
+    manualUsageAdjustments: manualUsed,
     availability: getPlanAvailability({
       ...clientPlan,
       weeklyClassesUsed: weeklyUsed,

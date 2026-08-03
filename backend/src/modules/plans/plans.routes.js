@@ -4,6 +4,7 @@ import * as plansService from './plans.service.js';
 import {
   assignPlanSchema,
   cancelPlanSchema,
+  consumeCatchUpSchema,
   createPlanSchema,
   listClientPlansQuerySchema,
   listPlansQuerySchema,
@@ -47,6 +48,11 @@ router.patch(
   '/assignment/:id/cancel',
   validateBody(cancelPlanSchema),
   plansController.cancelClientPlan
+);
+router.post(
+  '/assignment/:id/consume-catch-up',
+  validateBody(consumeCatchUpSchema),
+  plansController.consumeCatchUp
 );
 router.get('/:id', plansController.getPlan);
 router.post('/', validateBody(createPlanSchema), plansController.createPlan);

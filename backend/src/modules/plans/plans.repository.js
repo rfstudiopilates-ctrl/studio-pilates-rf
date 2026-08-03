@@ -295,6 +295,65 @@ export async function updateClientPlanUsage(id, data, connection = pool) {
   );
 }
 
+export async function sumUsageAdjustments(clientPlanId, connection = pool) {
+  const db = connection || pool;
+  const [rows] = await db.query(
+    `SELECT COALESCE(SUM(quantity), 0) AS total
+     FROM client_plan_usage_adjustments
+     WHERE client_plan_id = ?`,
+    [clientPlanId]
+  );
+
+  return Number(rows[0]?.total || 0);
+}
+
+export async function createUsageAdjustment(data, connection = pool) {
+  const db = connection || pool;
+  const [result] = await db.query(
+    `INSERT INTO client_plan_usage_adjustments (
+      client_plan_id, quantity, reason, created_by_admin_id
+    ) VALUES (?, ?, ?, ?)`,
+    [data.clientPlanId, data.quantity, data.reason, data.createdByAdminId || null]
+  );
+
+  const [rows] = await db.query(
+    `SELECT id, client_plan_id, quantity, reason, created_by_admin_id, created_at
+     FROM client_plan_usage_adjustments
+     WHERE id = ?`,
+    [result.insertId]
+  );
+
+  const row = rows[0];
+  return {
+    id: row.id,
+    clientPlanId: row.client_plan_id,
+    quantity: Number(row.quantity),
+    reason: row.reason,
+    createdByAdminId: row.created_by_admin_id,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listUsageAdjustments(clientPlanId, connection = pool) {
+  const db = connection || pool;
+  const [rows] = await db.query(
+    `SELECT id, client_plan_id, quantity, reason, created_by_admin_id, created_at
+     FROM client_plan_usage_adjustments
+     WHERE client_plan_id = ?
+     ORDER BY created_at DESC, id DESC`,
+    [clientPlanId]
+  );
+
+  return rows.map((row) => ({
+    id: row.id,
+    clientPlanId: row.client_plan_id,
+    quantity: Number(row.quantity),
+    reason: row.reason,
+    createdByAdminId: row.created_by_admin_id,
+    createdAt: row.created_at,
+  }));
+}
+
 export async function expireClientPlans() {
   const today = getTodayInArgentina();
   await pool.query(

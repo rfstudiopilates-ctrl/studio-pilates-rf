@@ -99,3 +99,16 @@ export async function cancelClientPlan(req, res, next) {
     next(error);
   }
 }
+
+export async function consumeCatchUp(req, res, next) {
+  try {
+    const result = await plansService.consumeCatchUpSlots(
+      Number(req.params.id),
+      req.validatedBody || {},
+      req.auth.sub
+    );
+    sendSuccess(res, result);
+  } catch (error) {
+    next(error);
+  }
+}
