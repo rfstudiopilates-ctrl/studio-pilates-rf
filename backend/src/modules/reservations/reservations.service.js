@@ -3,8 +3,11 @@ import { env } from '../../config/env.js';
 import { createAppError } from '../../utils/AppError.js';
 import {
   addDaysToDate,
+  addMinutesToTime,
   canCancelClass,
+  getFixedScheduleGraceInfo,
   getHoursUntilClass,
+  getIsoDayOfWeek,
   getMonthStartDate,
   getNowPartsInArgentina,
   getPlanEndDate,
@@ -31,6 +34,7 @@ import {
   PAUSED_RECURRING_CANCELLATION_REASON,
   CANCELLED_RECURRING_CANCELLATION_REASON,
   PLAN_CANCELLED_REASON,
+  PLAN_EXPIRED_GRACE_RELEASE_REASON,
   CLIENT_DEACTIVATED_REASON,
   CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
   SCHEDULE_CHANGE_VACATED_REASON,
@@ -168,7 +172,7 @@ export async function expireStalePendingReservations({ source = 'manual' } = {})
 async function validateClassForBooking(
   generatedClassId,
   connection,
-  { alreadyHoldingSeat = false } = {}
+  { alreadyHoldingSeat = false, allowPastClass = false } = {}
 ) {
   const classItem = await classesRepository.getClassByIdForUpdate(generatedClassId, connection);
 
@@ -180,7 +184,7 @@ async function validateClassForBooking(
     throw createAppError('La clase no está disponible para reservas', 400);
   }
 
-  if (getHoursUntilClass(classItem.classDate, classItem.startTime) <= 0) {
+  if (!allowPastClass && getHoursUntilClass(classItem.classDate, classItem.startTime) <= 0) {
     throw createAppError('No podés reservar una clase que ya comenzó o finalizó', 400);
   }
 
@@ -205,6 +209,7 @@ export async function createReservation({
   createdByAdminId,
   recurringReservationId,
   skipPlanCheck = false,
+  allowPastClass = false,
 }) {
   await expireStalePendingReservations({ source: 'booking' });
   await plansRepository.expireClientPlans();
@@ -234,7 +239,13 @@ export async function createReservation({
       throw createAppError('Ya tenés una reserva activa para esta clase', 400);
     }
 
-    const classItem = await validateClassForBooking(generatedClassId, connection);
+    if (existing && existing.status === 'completed' && allowPastClass) {
+      throw createAppError('Ya hay una asistencia registrada para esa clase', 400);
+    }
+
+    const classItem = await validateClassForBooking(generatedClassId, connection, {
+      allowPastClass,
+    });
 
     const sameDayReservation = await reservationsRepository.findActiveReservationByClientAndDate(
       clientId,
@@ -288,11 +299,13 @@ export async function createReservation({
         connection
       );
 
-      if (!availability.canBook) {
-        if (availability.monthlyRemaining <= 0) {
-          throw createAppError('Ya usaste todas las clases de tu abono', 400);
-        }
+      if (availability.monthlyRemaining <= 0) {
+        throw createAppError('Ya usaste todas las clases de tu abono', 400);
+      }
 
+      // Asistencias retroactivas de fijos: no aplicar cupo semanal (el fantasma del
+      // mismo día bloquearía marcar "vino"). Sí respetar el cupo total del abono.
+      if (!allowPastClass && !availability.canBook) {
         throw createAppError(
           'Ya alcanzaste el cupo de esta semana. Si te quedan clases del abono, cancelá a tiempo una reserva para recuperar cupo o esperá a la próxima semana.',
           400
@@ -352,21 +365,24 @@ export async function createReservation({
       await classesRepository.syncBookedCountFromReservations(generatedClassId, connection);
     }
 
-    if (finalStatus === 'confirmed') {
-      if (consumesPlan && clientPlanId) {
-        const usageResult = await incrementClientPlanUsage(clientPlanId, connection);
-        if (!usageResult?.ok) {
-          throw createAppError(usageResult.reason, 400);
-        }
-      }
+    const shouldConsumePlanUsage =
+      consumesPlan &&
+      clientPlanId &&
+      (finalStatus === 'confirmed' || (allowPastClass && finalStatus === 'completed'));
 
-      if (recoveryCreditId) {
-        await reservationsRepository.markRecoveryCreditUsed(
-          recoveryCreditId,
-          reservation.id,
-          connection
-        );
+    if (shouldConsumePlanUsage) {
+      const usageResult = await incrementClientPlanUsage(clientPlanId, connection);
+      if (!usageResult?.ok) {
+        throw createAppError(usageResult.reason, 400);
       }
+    }
+
+    if (finalStatus === 'confirmed' && recoveryCreditId) {
+      await reservationsRepository.markRecoveryCreditUsed(
+        recoveryCreditId,
+        reservation.id,
+        connection
+      );
     }
 
     await connection.commit();
@@ -897,10 +913,14 @@ export async function completePastActiveReservations({ clientId = null } = {}) {
 }
 
 /**
- * Al cancelar un plan: cierra horarios fijos y libera reservas futuras.
- * Las confirmadas ya pasadas se marcan completed (no deben seguir como "activas").
+ * Cierra horarios fijos y libera reservas futuras del cliente.
  */
-export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
+export async function releaseFixedSchedulesForClient({
+  clientId,
+  adminId = null,
+  reason = PLAN_CANCELLED_REASON,
+  cancelNonRecurringFutures = true,
+}) {
   const today = getTodayInArgentina();
   const pastCleanup = await completePastActiveReservations({ clientId });
 
@@ -927,7 +947,7 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
         await cancelReservation({
           reservationId: reservation.id,
           cancelledBy: 'admin',
-          cancellationReason: PLAN_CANCELLED_REASON,
+          cancellationReason: reason,
           adminId,
           silent: true,
           skipRecoveryCredit: true,
@@ -939,28 +959,30 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
     }
   }
 
-  const remainingActives =
-    await reservationsRepository.listActiveReservationsByClient(clientId);
+  if (cancelNonRecurringFutures) {
+    const remainingActives =
+      await reservationsRepository.listActiveReservationsByClient(clientId);
 
-  for (const reservation of remainingActives) {
-    const classDate = toDateString(reservation.classDate) || String(reservation.classDate || '');
+    for (const reservation of remainingActives) {
+      const classDate = toDateString(reservation.classDate) || String(reservation.classDate || '');
 
-    if (!classDate || classDate < today) {
-      continue;
-    }
+      if (!classDate || classDate < today) {
+        continue;
+      }
 
-    try {
-      await cancelReservation({
-        reservationId: reservation.id,
-        cancelledBy: 'admin',
-        cancellationReason: PLAN_CANCELLED_REASON,
-        adminId,
-        silent: true,
-        skipRecoveryCredit: true,
-      });
-      cancelledReservations += 1;
-    } catch {
-      // Continuar.
+      try {
+        await cancelReservation({
+          reservationId: reservation.id,
+          cancelledBy: 'admin',
+          cancellationReason: reason,
+          adminId,
+          silent: true,
+          skipRecoveryCredit: true,
+        });
+        cancelledReservations += 1;
+      } catch {
+        // Continuar.
+      }
     }
   }
 
@@ -969,6 +991,78 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
     cancelledRecurring,
     cancelledReservations,
   };
+}
+
+/**
+ * Al cancelar un plan: cierra horarios fijos y libera reservas futuras.
+ * Las confirmadas ya pasadas se marcan completed (no deben seguir como "activas").
+ */
+export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
+  return releaseFixedSchedulesForClient({
+    clientId,
+    adminId,
+    reason: PLAN_CANCELLED_REASON,
+    cancelNonRecurringFutures: true,
+  });
+}
+
+/**
+ * Libera fijos de planes expired cuya gracia de 3 días ya terminó.
+ */
+export async function releaseExpiredPlansPastGrace() {
+  const expiredPlans = await plansRepository.listExpiredClientPlansPastGrace();
+  let releasedClients = 0;
+  let cancelledRecurring = 0;
+  let cancelledReservations = 0;
+
+  for (const clientPlan of expiredPlans) {
+    const occupying = await reservationsRepository.countOccupyingRecurringByClient(
+      clientPlan.clientId
+    );
+
+    if (occupying <= 0) {
+      continue;
+    }
+
+    // Solo liberar si el cliente no tiene plan activo (p.ej. ya renovó).
+    const activePlan = await plansRepository.findActiveClientPlan(clientPlan.clientId);
+    if (activePlan) {
+      continue;
+    }
+
+    const cleanup = await releaseFixedSchedulesForClient({
+      clientId: clientPlan.clientId,
+      adminId: null,
+      reason: PLAN_EXPIRED_GRACE_RELEASE_REASON,
+      // En gracia vencida solo liberamos fijos; no tocar reservas manuales futuras.
+      cancelNonRecurringFutures: false,
+    });
+
+    if (cleanup.cancelledRecurring > 0 || cleanup.cancelledReservations > 0) {
+      releasedClients += 1;
+      cancelledRecurring += cleanup.cancelledRecurring;
+      cancelledReservations += cleanup.cancelledReservations;
+
+      try {
+        await clientsRepository.createClientHistory({
+          clientId: clientPlan.clientId,
+          actionType: 'client_updated',
+          description: `Plan vencido: horarios fijos liberados tras 3 días de gracia (${clientPlan.planName})`,
+          metadata: {
+            clientPlanId: clientPlan.id,
+            endDate: toDateString(clientPlan.endDate),
+            bookingCleanup: cleanup,
+          },
+          performedByType: 'system',
+          performedById: null,
+        });
+      } catch {
+        // Continuar.
+      }
+    }
+  }
+
+  return { releasedClients, cancelledRecurring, cancelledReservations };
 }
 
 /**
@@ -1157,6 +1251,161 @@ export async function getMyRecoveryCredits(clientId) {
   return reservationsRepository.listRecoveryCredits(clientId, { status: 'available' });
 }
 
+function listPastOccurrenceDates({ planStart, dayOfWeek, today = getTodayInArgentina() }) {
+  const start = toDateString(planStart);
+  const yesterday = addDaysToDate(today, -1);
+  if (!start || !yesterday || start > yesterday) {
+    return [];
+  }
+
+  const dates = [];
+  let cursor = start;
+
+  while (cursor <= yesterday) {
+    if (getIsoDayOfWeek(cursor) === Number(dayOfWeek)) {
+      dates.push(cursor);
+    }
+    cursor = addDaysToDate(cursor, 1);
+  }
+
+  return dates;
+}
+
+async function ensureClassForTemplateDate(template, classDate, settings) {
+  const existing = await classesRepository.findClassByTemplateAndDate(template.id, classDate);
+  if (existing) {
+    return existing;
+  }
+
+  const capacity = Number(template.capacity || settings?.maxClassCapacity || 6);
+  const duration = Number(template.duration_minutes || settings?.classDurationMinutes || 60);
+  const startTime = normalizeTime(template.start_time);
+  const endTime = addMinutesToTime(startTime, duration);
+
+  await classesRepository.insertClassIfNotExists({
+    scheduleTemplateId: template.id,
+    classDate,
+    startTime,
+    endTime,
+    capacity,
+  });
+
+  return classesRepository.findClassByTemplateAndDate(template.id, classDate);
+}
+
+/**
+ * Fechas del horario fijo entre el inicio del plan y ayer que aún no tienen
+ * una reserva real (para que el admin confirme vino / no vino).
+ */
+export async function getPastOccurrencesForFixedSchedule({ clientId, scheduleTemplateId }) {
+  const client = await clientsRepository.findClientById(clientId);
+  if (!client) {
+    throw createAppError('Cliente no encontrado', 404);
+  }
+
+  const [templateRows] = await pool.query(
+    'SELECT * FROM schedule_templates WHERE id = ? AND is_active = 1',
+    [scheduleTemplateId]
+  );
+
+  if (!templateRows[0]) {
+    throw createAppError('Horario no encontrado', 404);
+  }
+
+  const template = templateRows[0];
+  await plansRepository.expireClientPlans();
+  const activePlan = await plansRepository.findActiveClientPlan(clientId);
+
+  if (!activePlan) {
+    throw createAppError('El cliente no tiene un plan activo', 400);
+  }
+
+  const today = getTodayInArgentina();
+  const planStart = toDateString(activePlan.startDate);
+  const candidateDates = listPastOccurrenceDates({
+    planStart,
+    dayOfWeek: template.day_of_week,
+    today,
+  });
+
+  const occurrences = [];
+
+  for (const date of candidateDates) {
+    const classItem = await classesRepository.findClassByTemplateAndDate(template.id, date);
+    if (classItem) {
+      const existing = await reservationsRepository.findReservationByClientAndClass(
+        clientId,
+        classItem.id
+      );
+      if (
+        existing &&
+        ['pending', 'confirmed', 'completed', 'no_show'].includes(existing.status)
+      ) {
+        continue;
+      }
+    }
+
+    occurrences.push({
+      date,
+      dayOfWeek: Number(template.day_of_week),
+      startTime: normalizeTime(template.start_time).slice(0, 5),
+      scheduleTemplateId: Number(template.id),
+    });
+  }
+
+  return {
+    planStart,
+    today,
+    requiresConfirmation: occurrences.length > 0,
+    occurrences,
+  };
+}
+
+async function applyPastAttendanceForRecurring({
+  clientId,
+  template,
+  recurring,
+  activePlan,
+  pastAttendance,
+  adminId,
+}) {
+  const settings = await getSettings();
+  let attended = 0;
+  let missed = 0;
+  const details = [];
+
+  for (const item of pastAttendance) {
+    const date = toDateString(item.date);
+    if (!item.attended) {
+      missed += 1;
+      details.push({ date, attended: false });
+      continue;
+    }
+
+    const classItem = await ensureClassForTemplateDate(template, date, settings);
+    if (!classItem) {
+      throw createAppError(`No se pudo crear la clase del ${date}`, 500);
+    }
+
+    await createReservation({
+      clientId,
+      generatedClassId: classItem.id,
+      status: 'completed',
+      bookingType: 'recurring',
+      recurringReservationId: recurring.id,
+      createdByAdminId: adminId,
+      allowPastClass: true,
+    });
+
+    attended += 1;
+    details.push({ date, attended: true });
+  }
+
+  await syncClientPlanCounters(activePlan);
+
+  return { attended, missed, details };
+}
+
 export async function createRecurringReservation(payload, adminId) {
   // Admin puede asignar fijo aunque el cliente esté en deuda.
   const client = await validateClientCanBook(payload.clientId, { allowDebt: true });
@@ -1179,6 +1428,35 @@ export async function createRecurringReservation(payload, adminId) {
       'Los horarios fijos solo están disponibles para planes de más de 3 clases mensuales.',
       400
     );
+  }
+
+  const pastPreview = await getPastOccurrencesForFixedSchedule({
+    clientId: client.id,
+    scheduleTemplateId: template.id,
+  });
+
+  if (pastPreview.requiresConfirmation) {
+    const attendance = Array.isArray(payload.pastAttendance) ? payload.pastAttendance : null;
+    if (!attendance) {
+      throw createAppError(
+        'Hay días del horario fijo anteriores a hoy. Confirmá si el cliente vino o no en cada fecha.',
+        400,
+        { code: 'PAST_ATTENDANCE_REQUIRED', occurrences: pastPreview.occurrences }
+      );
+    }
+
+    const expectedDates = new Set(pastPreview.occurrences.map((item) => item.date));
+    const providedDates = new Set(attendance.map((item) => toDateString(item.date)));
+
+    for (const date of expectedDates) {
+      if (!providedDates.has(date)) {
+        throw createAppError(
+          `Falta indicar asistencia para el ${date}.`,
+          400,
+          { code: 'PAST_ATTENDANCE_REQUIRED', occurrences: pastPreview.occurrences }
+        );
+      }
+    }
   }
 
   const slotLimit = getFixedScheduleSlotLimit(activePlan);
@@ -1225,7 +1503,8 @@ export async function createRecurringReservation(payload, adminId) {
     );
   }
 
-  const startDate = payload.startDate || getTodayInArgentina();
+  const planStart = toDateString(activePlan.startDate) || getTodayInArgentina();
+  const startDate = payload.startDate || planStart;
   const endDate = payload.endDate || activePlan.endDate || null;
   let recurring;
 
@@ -1249,6 +1528,20 @@ export async function createRecurringReservation(payload, adminId) {
     });
   }
 
+  let pastAttendanceResult = null;
+  if (pastPreview.requiresConfirmation && Array.isArray(payload.pastAttendance)) {
+    pastAttendanceResult = await applyPastAttendanceForRecurring({
+      clientId: client.id,
+      template,
+      recurring,
+      activePlan,
+      pastAttendance: payload.pastAttendance.filter((item) =>
+        pastPreview.occurrences.some((occ) => occ.date === toDateString(item.date))
+      ),
+      adminId,
+    });
+  }
+
   // Asegura clases vinculadas y materializa todos los fijos del cliente en orden de fecha.
   await generateClasses();
 
@@ -1263,11 +1556,12 @@ export async function createRecurringReservation(payload, adminId) {
     metadata: {
       recurringReservationId: recurring.id,
       processing,
+      pastAttendance: pastAttendanceResult,
     },
     performedById: adminId,
   });
 
-  return { recurring, processing };
+  return { recurring, processing, pastAttendance: pastAttendanceResult };
 }
 
 export async function updateRecurringReservation(id, payload, adminId) {
@@ -1397,6 +1691,15 @@ export async function listClientRecurring(clientId) {
   return reservationsRepository.listRecurringByClient(clientId);
 }
 
+/** Reasigna un fijo al nuevo client_plan al renovar (sin cambiar status). */
+export async function updateRecurringForPlanRenewal(recurringId, { clientPlanId, endDate, startDate }) {
+  return reservationsRepository.updateRecurringReservation(recurringId, {
+    clientPlanId,
+    endDate,
+    startDate,
+  });
+}
+
 export async function listAllRecurring(query = {}) {
   return reservationsRepository.listAllRecurring(query);
 }
@@ -1409,6 +1712,7 @@ export async function listMyRecurring(clientId) {
 export async function processRecurringReservations(options = {}) {
   await reservationsRepository.expireRecoveryCredits();
   await plansRepository.expireClientPlans();
+  await releaseExpiredPlansPastGrace();
 
   // Repara cambios de horario ya aprobados sin marcador en la clase origen
   // (evita cupo semanal fantasma que bloquea otros fijos de la semana).
@@ -1452,17 +1756,42 @@ export async function processRecurringReservations(options = {}) {
 
   for (const recurring of recurringList) {
     const recurringEnd = recurring.endDate ? toDateString(recurring.endDate) : null;
+    const linkedPlan = recurring.clientPlanId
+      ? await plansRepository.findClientPlanById(recurring.clientPlanId)
+      : null;
+    const linkedPlanEnd = linkedPlan?.endDate ? toDateString(linkedPlan.endDate) : null;
+    const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
+    const planEnd = activePlan?.endDate
+      ? toDateString(activePlan.endDate)
+      : null;
+    const planStart = activePlan?.startDate
+      ? toDateString(activePlan.startDate)
+      : null;
 
+    // Retener fijos en gracia tras vencimiento; liberar solo vía releaseExpiredPlansPastGrace.
     if (recurringEnd && recurringEnd < today) {
+      const graceEnd =
+        linkedPlanEnd ||
+        (await plansRepository.findRenewableClientPlan(recurring.clientId))?.endDate;
+      const graceInfo = graceEnd ? getFixedScheduleGraceInfo(graceEnd, today) : null;
+
+      if (graceInfo?.inGrace) {
+        skipped += 1;
+        continue;
+      }
+
       await reservationsRepository.updateRecurringReservation(recurring.id, {
         status: 'cancelled',
       });
       continue;
     }
 
-    const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
-    const planEnd = activePlan?.endDate ? toDateString(activePlan.endDate) : null;
-    const planStart = activePlan?.startDate ? toDateString(activePlan.startDate) : null;
+    // Sin plan activo no materializar (puede estar en gracia reteniendo el cupo).
+    if (!activePlan) {
+      skipped += 1;
+      continue;
+    }
+
     let toDate = generationTo;
 
     if (recurringEnd && recurringEnd < toDate) {

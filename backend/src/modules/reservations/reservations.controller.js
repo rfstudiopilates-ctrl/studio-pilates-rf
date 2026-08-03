@@ -243,6 +243,17 @@ export async function createRecurring(req, res, next) {
   }
 }
 
+export async function getPastOccurrences(req, res, next) {
+  try {
+    const result = await reservationsService.getPastOccurrencesForFixedSchedule(
+      req.validatedQuery
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function listClientRecurring(req, res, next) {
   try {
     const recurring = await reservationsService.listClientRecurring(req.params.clientId);

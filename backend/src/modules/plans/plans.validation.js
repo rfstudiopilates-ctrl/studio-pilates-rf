@@ -32,6 +32,14 @@ export const assignPlanSchema = z.object({
     .optional(),
 });
 
+export const renewPlanSchema = z.object({
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida')
+    .optional(),
+  clientPlanId: z.coerce.number().int().positive().optional(),
+});
+
 export const listClientPlansQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(10),

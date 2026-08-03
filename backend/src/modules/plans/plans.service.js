@@ -1,11 +1,14 @@
 import { pool } from '../../config/database.js';
 import { createAppError } from '../../utils/AppError.js';
 import {
+  addDaysToDate,
+  getFixedScheduleGraceInfo,
   getMonthStartDate,
   getPlanAvailability,
   getPlanEndDate,
   getTodayInArgentina,
   getWeekStartDate,
+  toDateString,
 } from '../../utils/dates.js';
 import * as plansRepository from './plans.repository.js';
 import { syncClientPlanCounters } from './plans.usage.js';
@@ -111,9 +114,20 @@ export async function assignPlanToClient(clientId, payload, adminId) {
 
   if (existingActivePlan) {
     throw createAppError(
-      'El cliente ya tiene un plan activo. Cancelalo antes de asignar uno nuevo.',
+      'El cliente ya tiene un plan activo. Cancelalo o renovalo antes de asignar uno nuevo.',
       400
     );
+  }
+
+  // Si hay plan vencido en gracia con fijos retenidos, liberarlos al asignar otro producto.
+  const gracePlan = await plansRepository.findRenewableClientPlan(clientId);
+  if (gracePlan && gracePlan.status === 'expired') {
+    await reservationsService.releaseFixedSchedulesForClient({
+      clientId,
+      adminId,
+      reason: 'Plan reemplazado: se liberaron los horarios fijos del abono anterior',
+      cancelNonRecurringFutures: false,
+    });
   }
 
   const startDate = payload.startDate || getTodayInArgentina();
@@ -155,7 +169,20 @@ export async function assignPlanToClient(clientId, payload, adminId) {
   };
 }
 
-export async function getClientPlans(clientId, query) {
+function getDefaultRenewStartDate(previousEndDate, today = getTodayInArgentina()) {
+  const end = toDateString(previousEndDate);
+  if (!end) {
+    return today;
+  }
+
+  if (today <= end) {
+    return addDaysToDate(end, 1);
+  }
+
+  return today;
+}
+
+export async function renewClientPlan(clientId, payload, adminId) {
   const client = await clientsRepository.findClientById(clientId);
 
   if (!client) {
@@ -164,6 +191,129 @@ export async function getClientPlans(clientId, query) {
 
   await plansRepository.expireClientPlans();
 
+  let previousPlan = null;
+
+  if (payload.clientPlanId) {
+    previousPlan = await plansRepository.findClientPlanById(payload.clientPlanId);
+    if (!previousPlan || previousPlan.clientId !== clientId) {
+      throw createAppError('Asignación de plan no encontrada', 404);
+    }
+  } else {
+    previousPlan = await plansRepository.findRenewableClientPlan(clientId);
+  }
+
+  if (!previousPlan) {
+    throw createAppError(
+      'No hay un plan activo ni uno vencido dentro de los 3 días de gracia para renovar.',
+      400
+    );
+  }
+
+  if (previousPlan.status === 'cancelled') {
+    throw createAppError('No se puede renovar un plan cancelado. Asigná uno nuevo.', 400);
+  }
+
+  if (previousPlan.status === 'expired') {
+    const grace = getFixedScheduleGraceInfo(previousPlan.endDate);
+    if (!grace.inGrace) {
+      throw createAppError(
+        'La gracia de 3 días ya terminó. Asigná un plan nuevo e indicá los horarios fijos otra vez.',
+        400
+      );
+    }
+  }
+
+  const catalogPlan = await plansRepository.findActivePlanById(previousPlan.planId);
+  if (!catalogPlan) {
+    throw createAppError(
+      'El plan del catálogo ya no está activo. Asigná otro plan disponible.',
+      404
+    );
+  }
+
+  const today = getTodayInArgentina();
+  const startDate = payload.startDate || getDefaultRenewStartDate(previousPlan.endDate, today);
+  const endDate = getPlanEndDate(startDate, {
+    weeklyClasses: previousPlan.weeklyClassesLimit,
+    monthlyClasses: previousPlan.monthlyClassesLimit,
+    durationDays: catalogPlan.durationDays,
+  });
+
+  if (previousPlan.status === 'active') {
+    await plansRepository.updateClientPlanStatus(previousPlan.id, 'expired');
+  }
+
+  const clientPlan = await plansRepository.createClientPlan({
+    clientId,
+    planId: catalogPlan.id,
+    startDate,
+    endDate,
+    priceSnapshot: catalogPlan.price,
+    weeklyClassesLimit: catalogPlan.weeklyClasses,
+    monthlyClassesLimit: catalogPlan.monthlyClasses,
+    weekResetAt: getWeekStartDate(startDate),
+    monthResetAt: getMonthStartDate(startDate),
+  });
+
+  const recurringList = await reservationsService.listClientRecurring(clientId);
+  let updatedRecurring = 0;
+
+  for (const recurring of recurringList) {
+    if (recurring.status !== 'active' && recurring.status !== 'paused') {
+      continue;
+    }
+
+    await reservationsService.updateRecurringForPlanRenewal(recurring.id, {
+      clientPlanId: clientPlan.id,
+      endDate,
+      startDate: toDateString(recurring.startDate) || startDate,
+    });
+    updatedRecurring += 1;
+  }
+
+  const processing = await reservationsService.processRecurringReservations({ clientId });
+
+  await clientsRepository.createClientHistory({
+    clientId,
+    actionType: 'client_updated',
+    description: `Plan renovado: ${catalogPlan.name}`,
+    metadata: {
+      previousClientPlanId: previousPlan.id,
+      clientPlanId: clientPlan.id,
+      planId: catalogPlan.id,
+      startDate,
+      endDate,
+      updatedRecurring,
+      processing,
+    },
+    performedById: adminId,
+  });
+
+  const syncedPlan = await syncClientPlanCounters(clientPlan);
+
+  return {
+    clientPlan: syncedPlan || {
+      ...clientPlan,
+      availability: getPlanAvailability(clientPlan),
+    },
+    previousClientPlanId: previousPlan.id,
+    updatedRecurring,
+    processing,
+    defaultStartDate: getDefaultRenewStartDate(previousPlan.endDate, today),
+  };
+}
+
+export async function getClientPlans(clientId, query) {
+  const client = await clientsRepository.findClientById(clientId);
+
+  if (!client) {
+    throw createAppError('Cliente no encontrado', 404);
+  }
+
+  await plansRepository.expireClientPlans();
+  // Libera fijos de gracia vencida al consultar (además del cron).
+  await reservationsService.releaseExpiredPlansPastGrace();
+
   const activePlan = await plansRepository.findActiveClientPlan(clientId);
   const history = await plansRepository.listClientPlans(clientId, query);
   const syncedActivePlan = activePlan ? await syncClientPlanCounters(activePlan) : null;
@@ -171,6 +321,37 @@ export async function getClientPlans(clientId, query) {
   let financials = null;
   if (syncedActivePlan) {
     financials = await financesRepository.getPlanFinancialTotals(syncedActivePlan.id);
+  }
+
+  const renewablePlan = syncedActivePlan
+    ? syncedActivePlan
+    : await plansRepository.findRenewableClientPlan(clientId);
+
+  let renewal = null;
+  if (renewablePlan) {
+    const end = toDateString(renewablePlan.endDate);
+    const today = getTodayInArgentina();
+    const grace = getFixedScheduleGraceInfo(end, today);
+    const isActive = renewablePlan.status === 'active';
+    const inGrace = !isActive && grace.inGrace;
+
+    if (isActive || inGrace) {
+      renewal = {
+        canRenew: true,
+        clientPlanId: renewablePlan.id,
+        planId: renewablePlan.planId,
+        planName: renewablePlan.planName,
+        status: renewablePlan.status,
+        startDate: toDateString(renewablePlan.startDate),
+        endDate: end,
+        priceSnapshot: renewablePlan.priceSnapshot,
+        weeklyClassesLimit: renewablePlan.weeklyClassesLimit,
+        monthlyClassesLimit: renewablePlan.monthlyClassesLimit,
+        defaultRenewStartDate: getDefaultRenewStartDate(end, today),
+        graceDaysRemaining: isActive ? null : grace.graceDaysRemaining,
+        inGrace,
+      };
+    }
   }
 
   return {
@@ -182,6 +363,7 @@ export async function getClientPlans(clientId, query) {
           financials,
         }
       : null,
+    renewal,
     history,
   };
 }

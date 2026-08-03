@@ -72,6 +72,19 @@ export const createRecurringSchema = z.object({
   scheduleTemplateId: z.coerce.number().int().positive(),
   startDate: dateSchema.optional(),
   endDate: dateSchema.nullable().optional(),
+  pastAttendance: z
+    .array(
+      z.object({
+        date: dateSchema,
+        attended: z.boolean(),
+      })
+    )
+    .optional(),
+});
+
+export const pastOccurrencesQuerySchema = z.object({
+  clientId: z.coerce.number().int().positive(),
+  scheduleTemplateId: z.coerce.number().int().positive(),
 });
 
 export const updateRecurringSchema = z

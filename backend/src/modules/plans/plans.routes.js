@@ -7,6 +7,7 @@ import {
   createPlanSchema,
   listClientPlansQuerySchema,
   listPlansQuerySchema,
+  renewPlanSchema,
   updatePlanSchema,
   validateBody,
   validateQuery,
@@ -36,6 +37,11 @@ router.post(
   '/client/:clientId/assign',
   validateBody(assignPlanSchema),
   plansController.assignPlan
+);
+router.post(
+  '/client/:clientId/renew',
+  validateBody(renewPlanSchema),
+  plansController.renewPlan
 );
 router.patch(
   '/assignment/:id/cancel',

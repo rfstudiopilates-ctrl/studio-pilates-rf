@@ -6,6 +6,62 @@ export function getTodayInArgentina() {
 
 export const ARGENTINA_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
+/** Días que se retienen los horarios fijos tras vencer el plan (día 4 se liberan). */
+export const FIXED_SCHEDULE_GRACE_DAYS = 3;
+
+/** Diferencia en días calendario: later − earlier (puede ser negativa). */
+export function diffDays(earlierDate, laterDate) {
+  const earlier = toDateString(earlierDate);
+  const later = toDateString(laterDate);
+  if (!earlier || !later) {
+    return null;
+  }
+
+  const a = new Date(`${earlier}T12:00:00`);
+  const b = new Date(`${later}T12:00:00`);
+  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/**
+ * Plan vencido (end_date < today) dentro de la ventana de gracia.
+ * Día 1..3 tras el fin: retenido. Día 4+: liberar.
+ */
+export function getFixedScheduleGraceInfo(endDate, today = getTodayInArgentina()) {
+  const end = toDateString(endDate);
+  const asOf = toDateString(today);
+
+  if (!end || !asOf) {
+    return { inGrace: false, daysSinceExpiry: null, graceDaysRemaining: 0, graceEndsOn: null };
+  }
+
+  if (asOf <= end) {
+    return {
+      inGrace: false,
+      daysSinceExpiry: 0,
+      graceDaysRemaining: FIXED_SCHEDULE_GRACE_DAYS,
+      graceEndsOn: addDaysToDate(end, FIXED_SCHEDULE_GRACE_DAYS),
+    };
+  }
+
+  const daysSinceExpiry = diffDays(end, asOf);
+  const graceEndsOn = addDaysToDate(end, FIXED_SCHEDULE_GRACE_DAYS);
+  const inGrace = daysSinceExpiry > 0 && daysSinceExpiry <= FIXED_SCHEDULE_GRACE_DAYS;
+  const graceDaysRemaining = inGrace ? Math.max(0, FIXED_SCHEDULE_GRACE_DAYS - daysSinceExpiry + 1) : 0;
+
+  return { inGrace, daysSinceExpiry, graceDaysRemaining, graceEndsOn };
+}
+
+export function isPastFixedScheduleGrace(endDate, today = getTodayInArgentina()) {
+  const end = toDateString(endDate);
+  const asOf = toDateString(today);
+  if (!end || !asOf) {
+    return false;
+  }
+
+  const daysSinceExpiry = diffDays(end, asOf);
+  return daysSinceExpiry != null && daysSinceExpiry > FIXED_SCHEDULE_GRACE_DAYS;
+}
+
 /**
  * Día calendario en Argentina a partir de un TIMESTAMP UTC almacenado.
  * Usar en filtros DATE(...) para no cruzar medianoche por zona.

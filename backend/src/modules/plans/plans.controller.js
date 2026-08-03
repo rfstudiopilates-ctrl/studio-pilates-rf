@@ -62,6 +62,19 @@ export async function assignPlan(req, res, next) {
   }
 }
 
+export async function renewPlan(req, res, next) {
+  try {
+    const result = await plansService.renewClientPlan(
+      Number(req.params.clientId),
+      req.validatedBody || {},
+      req.auth.sub
+    );
+    sendSuccess(res, { ...result, message: 'Plan renovado correctamente' }, 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getClientPlans(req, res, next) {
   try {
     const result = await plansService.getClientPlans(

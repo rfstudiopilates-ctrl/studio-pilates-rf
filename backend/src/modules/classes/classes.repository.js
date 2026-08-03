@@ -124,6 +124,20 @@ export async function getClassById(id, connection = pool) {
   return mapClassRow(rows[0]);
 }
 
+export async function findClassByTemplateAndDate(scheduleTemplateId, classDate, connection = pool) {
+  const [rows] = await connection.query(
+    `SELECT id, schedule_template_id, class_date, start_time, end_time,
+            capacity, booked_count, status, created_at, updated_at
+     FROM generated_classes
+     WHERE schedule_template_id = ?
+       AND class_date = ?
+     LIMIT 1`,
+    [scheduleTemplateId, classDate]
+  );
+
+  return mapClassRow(rows[0]);
+}
+
 export async function getClassByIdForUpdate(id, connection) {
   const [rows] = await connection.query(
     `SELECT id, schedule_template_id, class_date, start_time, end_time,
