@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import AdminLayout from '../../../components/admin/AdminLayout';
 import ClientCancellationsPanel from '../../../components/clients/ClientCancellationsPanel';
+import ClientManualReservationsPanel from '../../../components/clients/ClientManualReservationsPanel';
 import ClientsListFilters from '../../../components/clients/ClientsListFilters';
 import ClientsTable from '../../../components/clients/ClientsTable';
 import ClientFormModal from '../../../components/clients/ClientFormModal';
@@ -23,6 +24,7 @@ import { addDaysToDate, getTodayInArgentina } from '../../../lib/dates';
 
 const TABS = [
   { id: 'listado', label: 'Listado', icon: 'users' },
+  { id: 'extras', label: 'Reservas extra', icon: 'calendar' },
   { id: 'cancelaciones', label: 'Cancelaciones', icon: 'close' },
 ];
 
@@ -155,6 +157,10 @@ export default function ClientsListPage() {
   const subtitle = useMemo(() => {
     if (activeTab === 'cancelaciones') {
       return 'Revisá cancelaciones, limpiá las ya vistas o asigná un nuevo horario.';
+    }
+
+    if (activeTab === 'extras') {
+      return 'Controlá reservas estándar, de recuperación y puntuales: quién las cargó y cuándo.';
     }
 
     return 'Gestioná alumnos, estados, credenciales y observaciones internas.';
@@ -346,6 +352,8 @@ export default function ClientsListPage() {
       <div className="mt-6">
         {activeTab === 'cancelaciones' ? (
           <ClientCancellationsPanel />
+        ) : activeTab === 'extras' ? (
+          <ClientManualReservationsPanel />
         ) : (
           <>
             <ClientsListFilters
