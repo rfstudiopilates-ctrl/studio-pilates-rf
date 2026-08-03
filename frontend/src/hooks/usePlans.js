@@ -83,6 +83,18 @@ export function useRenewPlan() {
   });
 }
 
+export function useConsumeCatchUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assignmentId, payload }) => plansApi.consumeCatchUp(assignmentId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: PLANS_KEY });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['reservations'] });
+    },
+  });
+}
+
 export function useCancelPlanAssignment() {
   const queryClient = useQueryClient();
   return useMutation({

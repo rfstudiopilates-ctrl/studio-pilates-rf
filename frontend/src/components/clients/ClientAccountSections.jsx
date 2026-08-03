@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import CancelPlanModal from './CancelPlanModal';
+import ConsumeCatchUpModal from './ConsumeCatchUpModal';
 import PlanPaymentModal from './PlanPaymentModal';
 import RegisterMovementModal from './RegisterMovementModal';
 import RenewPlanModal from './RenewPlanModal';
@@ -107,6 +108,7 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
   const [startDate, setStartDate] = useState(getTodayInArgentina());
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
   const [renewModalOpen, setRenewModalOpen] = useState(false);
+  const [consumeCatchUpOpen, setConsumeCatchUpOpen] = useState(false);
   const [paymentContext, setPaymentContext] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
   const [pendingReservationsRedirect, setPendingReservationsRedirect] = useState(null);
@@ -338,13 +340,23 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
             </div>
 
             {Number(activePlan.availability?.catchUpSlots || activePlan.catchUpSlots || 0) > 0 ? (
-              <Alert variant="info">
-                Tiene {activePlan.availability?.catchUpSlots || activePlan.catchUpSlots} clase(s) de
-                recuperación (catch-up): el plan esperaba{' '}
-                {activePlan.availability?.expectedUsed ?? '—'} usadas a esta altura y lleva{' '}
-                {activePlan.monthlyClassesUsed}. Eso le permite reservar días extra sin haber
-                cancelado. Detalle en el tab Historial.
-              </Alert>
+              <div className="space-y-3">
+                <Alert variant="info">
+                  Tiene {activePlan.availability?.catchUpSlots || activePlan.catchUpSlots} clase(s) de
+                  recuperación (catch-up): el plan esperaba{' '}
+                  {activePlan.availability?.expectedUsed ?? '—'} usadas a esta altura y lleva{' '}
+                  {activePlan.monthlyClassesUsed}. Eso le permite reservar días extra sin haber
+                  cancelado. Detalle en el tab Historial.
+                </Alert>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full sm:w-auto"
+                  onClick={() => setConsumeCatchUpOpen(true)}
+                >
+                  Descontar recuperación usada
+                </Button>
+              </div>
             ) : null}
 
             <Alert variant="info">
@@ -496,6 +508,18 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
         renewal={renewal}
         client={client}
         onRenewed={handleRenewSuccess}
+      />
+
+      <ConsumeCatchUpModal
+        open={consumeCatchUpOpen}
+        onClose={() => setConsumeCatchUpOpen(false)}
+        plan={activePlan}
+        onSuccess={(result) => {
+          setFeedback({
+            type: 'success',
+            message: result?.message || 'Cupos de recuperación descontados.',
+          });
+        }}
       />
 
       <PlanPaymentModal

@@ -41,6 +41,11 @@ export const plansApi = {
     return data.data;
   },
 
+  consumeCatchUp: async (assignmentId, payload) => {
+    const { data } = await api.post(`/plans/assignment/${assignmentId}/consume-catch-up`, payload);
+    return data.data;
+  },
+
   cancelAssignment: async (assignmentId, payload = {}) => {
     const { data } = await api.patch(`/plans/assignment/${assignmentId}/cancel`, payload);
     return data.data;
