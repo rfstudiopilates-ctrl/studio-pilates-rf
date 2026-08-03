@@ -256,6 +256,13 @@ export function ClientReservationsSection({ clientId }) {
                     </p>
                     <p className="mt-1 text-xs text-text-muted">
                       {BOOKING_TYPE_LABELS[reservation.bookingType] || reservation.bookingType}
+                      {reservation.bookingType === 'standard' ||
+                      reservation.bookingType === 'recovery' ||
+                      reservation.bookingType === 'drop_in'
+                        ? reservation.createdByAdminId
+                          ? ' · Asignó admin'
+                          : ' · Reservó cliente'
+                        : null}
                     </p>
                   </div>
                   <StatusBadge

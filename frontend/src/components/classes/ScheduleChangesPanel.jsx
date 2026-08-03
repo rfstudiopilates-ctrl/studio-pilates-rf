@@ -1,17 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import NavIcon from '../ui/NavIcon';
 import { Select } from '../ui/Select';
 import { SCHEDULE_CHANGE_STATUS_LABELS } from '../../constants/scheduleChanges';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   useApproveScheduleChange,
   useRejectScheduleChange,
   useScheduleChangesList,
 } from '../../hooks/useScheduleChanges';
-import { formatDateDisplay } from '../../lib/dates';
+import {
+  addDaysToDate,
+  formatDateDisplay,
+  formatDateTime,
+  getTodayInArgentina,
+} from '../../lib/dates';
 import { getErrorMessage } from '../../lib/formErrors';
+
+const DEFAULT_FILTERS = {
+  search: '',
+  status: 'pending',
+  origin: '',
+  sortBy: 'created_at',
+  sortOrder: 'desc',
+  from: '',
+  to: '',
+};
 
 function getStatusBadgeClass(status) {
   if (status === 'pending') {
@@ -27,22 +44,77 @@ function getStatusBadgeClass(status) {
 }
 
 export default function ScheduleChangesPanel() {
-  const [status, setStatus] = useState('pending');
+  const today = getTodayInArgentina();
+  const [filters, setFilters] = useState({
+    ...DEFAULT_FILTERS,
+    from: addDaysToDate(today, -45),
+    to: addDaysToDate(today, 30),
+  });
   const [page, setPage] = useState(1);
   const [feedback, setFeedback] = useState(null);
   const [rejectNotes, setRejectNotes] = useState({});
 
-  const { data, isLoading, isError, isFetching } = useScheduleChangesList({
-    status: status || undefined,
-    page,
-    limit: 20,
-  });
+  const debouncedSearch = useDebouncedValue(filters.search, 350);
 
+  useEffect(() => {
+    setPage(1);
+  }, [
+    debouncedSearch,
+    filters.status,
+    filters.origin,
+    filters.sortBy,
+    filters.sortOrder,
+    filters.from,
+    filters.to,
+  ]);
+
+  const listParams = useMemo(
+    () => ({
+      status: filters.status || undefined,
+      search: debouncedSearch.trim() || undefined,
+      origin: filters.origin || undefined,
+      from: filters.from || undefined,
+      to: filters.to || undefined,
+      sortBy: filters.sortBy,
+      sortOrder: filters.sortOrder,
+      page,
+      limit: 20,
+    }),
+    [filters, debouncedSearch, page]
+  );
+
+  const { data, isLoading, isError, isFetching } = useScheduleChangesList(listParams);
   const approveChange = useApproveScheduleChange();
   const rejectChange = useRejectScheduleChange();
 
   const items = data?.items || [];
   const pagination = data?.pagination;
+
+  const pendingCountParams = useMemo(
+    () => ({
+      status: 'pending',
+      from: addDaysToDate(today, -45),
+      to: addDaysToDate(today, 30),
+      page: 1,
+      limit: 1,
+    }),
+    [today]
+  );
+  const { data: pendingCountData } = useScheduleChangesList(pendingCountParams);
+  const pendingCount = pendingCountData?.pagination?.total ?? 0;
+
+  function updateFilter(key, value) {
+    setFilters((previous) => ({ ...previous, [key]: value }));
+  }
+
+  function resetFilters() {
+    setFilters({
+      ...DEFAULT_FILTERS,
+      from: addDaysToDate(today, -45),
+      to: addDaysToDate(today, 30),
+    });
+    setPage(1);
+  }
 
   async function handleApprove(id) {
     setFeedback(null);
@@ -80,33 +152,47 @@ export default function ScheduleChangesPanel() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-border bg-white p-5 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      {feedback ? (
+        <Alert variant={feedback.type === 'success' ? 'success' : 'error'}>
+          {feedback.message}
+        </Alert>
+      ) : null}
+
+      <section className="rounded-2xl border border-border bg-white p-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-100">
               <NavIcon name="swap" className="h-5 w-5 text-text" />
             </div>
             <div>
-              <p className="text-base font-semibold text-text">Solicitudes de cambio</p>
+              <p className="text-base font-semibold text-text">Cambios de horario</p>
               <p className="text-sm text-text-muted">
                 {isLoading
                   ? 'Cargando...'
-                  : `${pagination?.total ?? items.length} solicitud${
-                      (pagination?.total ?? items.length) === 1 ? '' : 'es'
+                  : `${pagination?.total ?? 0} en esta vista · ${pendingCount} pendiente${
+                      pendingCount === 1 ? '' : 's'
                     }`}
                 {isFetching && !isLoading ? ' · Actualizando' : ''}
               </p>
             </div>
           </div>
+          <Button type="button" variant="secondary" onClick={resetFilters}>
+            Restablecer filtros
+          </Button>
+        </div>
 
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Input
+            label="Buscar cliente"
+            name="search"
+            placeholder="Nombre, teléfono o usuario"
+            value={filters.search}
+            onChange={(event) => updateFilter('search', event.target.value)}
+          />
           <Select
             label="Estado"
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setPage(1);
-            }}
-            className="w-full shrink-0 sm:w-40"
+            value={filters.status}
+            onChange={(event) => updateFilter('status', event.target.value)}
           >
             <option value="pending">Pendientes</option>
             <option value="approved">Aprobadas</option>
@@ -114,15 +200,45 @@ export default function ScheduleChangesPanel() {
             <option value="cancelled">Canceladas</option>
             <option value="">Todas</option>
           </Select>
+          <Select
+            label="Quién lo pidió"
+            value={filters.origin}
+            onChange={(event) => updateFilter('origin', event.target.value)}
+          >
+            <option value="">Todos</option>
+            <option value="client">Cliente</option>
+            <option value="admin">Admin (reasignación)</option>
+          </Select>
+          <Select
+            label="Ordenar por"
+            value={filters.sortBy}
+            onChange={(event) => updateFilter('sortBy', event.target.value)}
+          >
+            <option value="created_at">Más recientes</option>
+            <option value="class_date">Fecha de clase</option>
+            <option value="client_name">Nombre</option>
+          </Select>
+          <Input
+            label="Desde (clase origen)"
+            type="date"
+            value={filters.from}
+            onChange={(event) => updateFilter('from', event.target.value)}
+          />
+          <Input
+            label="Hasta (clase origen)"
+            type="date"
+            value={filters.to}
+            onChange={(event) => updateFilter('to', event.target.value)}
+          />
+          <Select
+            label="Dirección"
+            value={filters.sortOrder}
+            onChange={(event) => updateFilter('sortOrder', event.target.value)}
+          >
+            <option value="desc">Descendente</option>
+            <option value="asc">Ascendente</option>
+          </Select>
         </div>
-
-        {feedback ? (
-          <div className="mt-4">
-            <Alert variant={feedback.type === 'success' ? 'success' : 'error'}>
-              {feedback.message}
-            </Alert>
-          </div>
-        ) : null}
       </section>
 
       {isError ? (
@@ -142,7 +258,7 @@ export default function ScheduleChangesPanel() {
               </div>
               <p className="text-base font-medium text-text">No hay solicitudes para mostrar</p>
               <p className="max-w-sm text-sm text-text-muted">
-                Probá cambiando el filtro de estado o esperá nuevas solicitudes de clientes.
+                Probá ampliando el rango de fechas, cambiando el estado o limpiando los filtros.
               </p>
             </div>
           ) : (
@@ -152,18 +268,40 @@ export default function ScheduleChangesPanel() {
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1 space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-text">{request.clientName}</p>
+                        <Link
+                          to={`/admin/clientes/${request.clientId}`}
+                          className="font-medium text-text underline-offset-2 hover:underline"
+                        >
+                          {request.clientName}
+                        </Link>
                         <span
                           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:px-2.5 sm:py-1 sm:text-xs ${getStatusBadgeClass(request.status)}`}
                         >
                           {SCHEDULE_CHANGE_STATUS_LABELS[request.status]}
                         </span>
+                        <span className="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-0.5 text-[10px] font-semibold text-text-muted sm:text-xs">
+                          Pedido por {request.originLabel || (request.origin === 'admin' ? 'Admin' : 'Cliente')}
+                        </span>
                       </div>
+
+                      <p className="text-xs text-text-muted">
+                        {request.origin === 'admin'
+                          ? `Reasignó admin${request.reviewedByAdminName ? `: ${request.reviewedByAdminName}` : ''}`
+                          : 'Solicitó la cliente'}
+                        {request.reviewedAt
+                          ? ` · Revisado ${formatDateTime(request.reviewedAt)}${
+                              request.reviewedByAdminName && request.origin !== 'admin'
+                                ? ` por ${request.reviewedByAdminName}`
+                                : ''
+                            }`
+                          : ''}
+                        {request.createdAt ? ` · Creado ${formatDateTime(request.createdAt)}` : ''}
+                      </p>
 
                       <div className="grid gap-2 sm:grid-cols-2">
                         <div className="rounded-xl border border-border bg-surface-muted/40 p-3 text-sm">
                           <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                            Clase actual
+                            Clase origen
                           </p>
                           <p className="mt-1 font-medium capitalize text-text">
                             {formatDateDisplay(request.fromClass?.classDate)}
@@ -174,7 +312,7 @@ export default function ScheduleChangesPanel() {
                         </div>
                         <div className="rounded-xl border border-brand-200 bg-brand-50/70 p-3 text-sm">
                           <p className="text-xs font-medium uppercase tracking-wide text-text-muted">
-                            Clase solicitada
+                            Clase destino
                           </p>
                           <p className="mt-1 font-medium capitalize text-text">
                             {formatDateDisplay(request.toClass?.classDate)}
