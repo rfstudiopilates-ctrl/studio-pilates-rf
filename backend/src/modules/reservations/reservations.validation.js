@@ -48,10 +48,14 @@ export const listReservationsQuerySchema = z.object({
   from: dateSchema.optional(),
   to: dateSchema.optional(),
   status: z.enum(RESERVATION_STATUSES).optional(),
+  /** cancelled + no_show (cierres de reserva) */
+  statusGroup: z.enum(['closures']).optional(),
   bookingType: z.enum(BOOKING_TYPES).optional(),
   /** standard + recovery + drop_in (excluye horario fijo) */
   bookingGroup: z.enum(['manual', 'fixed']).optional(),
   createdBy: z.enum(['client', 'admin']).optional(),
+  /** Impacto en cupo del abono */
+  quotaOutcome: z.enum(['returned', 'consumed', 'none']).optional(),
   clientId: z.coerce.number().int().positive().optional(),
   classId: z.coerce.number().int().positive().optional(),
   cancelledBy: z.enum(['client', 'admin']).optional(),

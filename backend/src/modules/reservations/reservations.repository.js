@@ -300,9 +300,11 @@ export async function listReservations({
   from,
   to,
   status,
+  statusGroup,
   bookingType,
   bookingGroup,
   createdBy,
+  quotaOutcome,
   clientId,
   classId,
   cancelledBy,
@@ -316,9 +318,19 @@ export async function listReservations({
   const conditions = ['gc.class_date BETWEEN ? AND ?'];
   const params = [from, to];
 
-  if (status) {
+  if (quotaOutcome === 'returned') {
+    conditions.push("r.status = 'cancelled'");
+    conditions.push('r.consumes_plan = 1');
+  } else if (quotaOutcome === 'consumed') {
+    conditions.push("r.status = 'no_show'");
+  } else if (quotaOutcome === 'none') {
+    conditions.push("r.status = 'cancelled'");
+    conditions.push('r.consumes_plan = 0');
+  } else if (status) {
     conditions.push('r.status = ?');
     params.push(status);
+  } else if (statusGroup === 'closures') {
+    conditions.push("r.status IN ('cancelled', 'no_show')");
   }
 
   if (bookingType) {

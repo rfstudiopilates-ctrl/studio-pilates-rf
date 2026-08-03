@@ -795,8 +795,10 @@ export async function cancelReservation({
       actionType: 'client_updated',
       description:
         nextStatus === 'no_show'
-          ? `Reserva marcada como ausente (fuera de plazo): ${classItem.classDate} ${classItem.startTime}`
-          : `Reserva cancelada: ${classItem.classDate} ${classItem.startTime}`,
+          ? `Ausente / cupo consumido: ${classItem.classDate} ${classItem.startTime}`
+          : returnedToPlan
+            ? `Cancelación con cupo devuelto: ${classItem.classDate} ${classItem.startTime}`
+            : `Reserva cancelada: ${classItem.classDate} ${classItem.startTime}`,
       metadata: {
         reservationId,
         cancelledBy,
@@ -804,6 +806,8 @@ export async function cancelReservation({
         returnedToPlan,
         timelyCancel,
         studioCancelledClass: Boolean(studioCancelledClass),
+        quotaOutcome:
+          nextStatus === 'no_show' ? 'consumed' : returnedToPlan ? 'returned' : 'none',
       },
       performedByType: cancelledBy === 'client' ? 'client' : adminId ? 'admin' : 'system',
       performedById: adminId || (cancelledBy === 'client' ? Number(clientId) : null),
@@ -1089,18 +1093,22 @@ export async function listReservations(query) {
   await expireStalePendingReservations({ source: 'list' });
   await completePastActiveReservations({ clientId: query.clientId || null });
 
-  const isCancelledQueue = query.status === 'cancelled';
+  const isClosureQueue =
+    query.status === 'cancelled' ||
+    query.status === 'no_show' ||
+    query.statusGroup === 'closures' ||
+    Boolean(query.quotaOutcome);
   const from =
     query.from ||
-    (isCancelledQueue ? addDaysToDate(getTodayInArgentina(), -45) : getTodayInArgentina());
-  const to = query.to || addDaysToDate(isCancelledQueue ? getTodayInArgentina() : from, 30);
+    (isClosureQueue ? addDaysToDate(getTodayInArgentina(), -45) : getTodayInArgentina());
+  const to = query.to || addDaysToDate(isClosureQueue ? getTodayInArgentina() : from, 30);
 
   return reservationsRepository.listReservations({
     ...query,
     from,
     to,
-    sortBy: query.sortBy || (isCancelledQueue ? 'cancelled_at' : 'class_date'),
-    sortOrder: query.sortOrder || (isCancelledQueue ? 'desc' : 'asc'),
+    sortBy: query.sortBy || (isClosureQueue ? 'cancelled_at' : 'class_date'),
+    sortOrder: query.sortOrder || (isClosureQueue ? 'desc' : 'asc'),
   });
 }
 
@@ -1111,8 +1119,8 @@ export async function clearCancelledReservation(reservationId) {
     throw createAppError('Reserva no encontrada', 404);
   }
 
-  if (reservation.status !== 'cancelled') {
-    throw createAppError('Solo se pueden limpiar cancelaciones', 400);
+  if (reservation.status !== 'cancelled' && reservation.status !== 'no_show') {
+    throw createAppError('Solo se pueden limpiar cancelaciones o ausencias', 400);
   }
 
   if (reservation.adminClearedAt) {
