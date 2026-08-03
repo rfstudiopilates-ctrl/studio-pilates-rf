@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import CancelPlanModal from './CancelPlanModal';
 import PlanPaymentModal from './PlanPaymentModal';
 import RegisterMovementModal from './RegisterMovementModal';
+import RenewPlanModal from './RenewPlanModal';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -105,14 +106,18 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
   const [selectedPlanId, setSelectedPlanId] = useState('');
   const [startDate, setStartDate] = useState(getTodayInArgentina());
   const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [renewModalOpen, setRenewModalOpen] = useState(false);
   const [paymentContext, setPaymentContext] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', message: '' });
   const [pendingReservationsRedirect, setPendingReservationsRedirect] = useState(null);
 
   const activePlan = data?.activePlan;
+  const renewal = data?.renewal;
   const history = data?.history?.items || [];
   const plans = plansData?.items || [];
   const selectedPlan = plans.find((plan) => String(plan.id) === String(selectedPlanId));
+  const canRenew = Boolean(renewal?.canRenew);
+  const inGraceWithoutActive = Boolean(renewal?.inGrace) && !activePlan;
 
   const previewEndDate = useMemo(() => {
     if (!selectedPlan || !startDate) return '';
@@ -218,6 +223,35 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
     });
   };
 
+  const handleRenewSuccess = (result) => {
+    const planName = result?.clientPlan?.planName || renewal?.planName || 'plan';
+    const price = Number(result?.clientPlan?.priceSnapshot ?? renewal?.priceSnapshot ?? 0);
+
+    if (price > 0) {
+      setPaymentContext({
+        client: client || { id: clientId, fullName: 'Cliente' },
+        plan: {
+          id: result?.clientPlan?.planId || renewal?.planId,
+          name: planName,
+          price,
+        },
+        clientPlanId: result.clientPlan.id,
+        amount: price,
+        startDate: result.clientPlan.startDate,
+      });
+      setPendingReservationsRedirect(
+        'Plan renovado. Los horarios fijos se mantuvieron. Registrá el pago si corresponde.'
+      );
+      setFeedback({ type: '', message: '' });
+      return;
+    }
+
+    setFeedback({
+      type: 'success',
+      message: 'Plan renovado. Los horarios fijos se mantuvieron.',
+    });
+  };
+
   return (
     <section className="rounded-2xl border border-border bg-white p-6 shadow-[0_8px_30px_rgba(26,26,26,0.04)]">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -225,13 +259,20 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
           <h2 className="text-lg font-semibold text-text">Plan del cliente</h2>
           <p className="mt-1 text-sm text-text-muted">
             {activePlan
-              ? 'Solo puede haber un plan activo. Cancelalo si querés asignar otro.'
-              : 'Elegí un plan para habilitar reservas con cupo semanal y mensual.'}
+              ? 'Podés renovar el mismo abono manteniendo los fijos, o cancelarlo para asignar otro.'
+              : inGraceWithoutActive
+                ? 'El plan venció y los horarios fijos se retienen 3 días. Renová o asigná otro plan.'
+                : 'Elegí un plan para habilitar reservas con cupo semanal y mensual.'}
           </p>
         </div>
         {activePlan ? (
           <span className="inline-flex w-fit items-center rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-success">
             {CLIENT_PLAN_STATUS_LABELS[activePlan.status] || 'Activo'}
+          </span>
+        ) : inGraceWithoutActive ? (
+          <span className="inline-flex w-fit items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+            Vencido · {renewal.graceDaysRemaining} día
+            {renewal.graceDaysRemaining === 1 ? '' : 's'} de gracia
           </span>
         ) : null}
       </div>
@@ -265,13 +306,20 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
                 </div>
               </div>
 
-              <Button
-                variant="secondary"
-                className="shrink-0 text-danger hover:bg-red-50"
-                onClick={() => setCancelModalOpen(true)}
-              >
-                Cancelar plan
-              </Button>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                {canRenew ? (
+                  <Button variant="secondary" onClick={() => setRenewModalOpen(true)}>
+                    Renovar plan
+                  </Button>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  className="text-danger hover:bg-red-50"
+                  onClick={() => setCancelModalOpen(true)}
+                >
+                  Cancelar plan
+                </Button>
+              </div>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -300,29 +348,54 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
             ) : null}
 
             <Alert variant="info">
-              Para registrar otro plan, primero cancelá el actual. Así se mantiene un solo plan
-              vigente y el cupo de clases queda claro.
+              Para asignar un plan distinto, cancelá el actual (se liberan los fijos). Si es el
+              mismo abono, usá Renovar para mantener los horarios.
             </Alert>
           </div>
         </div>
       ) : (
         <div className="mt-6 space-y-5">
-          <div className="rounded-2xl border border-dashed border-border bg-surface-muted/30 p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-text">
-                <NavIcon name="plans" className="h-5 w-5" />
+          {inGraceWithoutActive ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-text">
+                    Plan vencido: {renewal.planName}
+                  </p>
+                  <p className="mt-1 text-sm text-text-muted">
+                    Finalizó el {formatDateDisplay(renewal.endDate)}. Los horarios fijos se
+                    retienen {renewal.graceDaysRemaining} día
+                    {renewal.graceDaysRemaining === 1 ? '' : 's'} más. Después se liberan solos.
+                  </p>
+                </div>
+                <Button onClick={() => setRenewModalOpen(true)} className="shrink-0">
+                  Renovar mismo plan
+                </Button>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-text">Sin plan activo</p>
-                <p className="mt-1 text-sm text-text-muted">
-                  Seleccioná un plan con las mini cards y confirmá la asignación.
-                </p>
+              <Alert variant="info" className="mt-4">
+                Si asignás otro plan distinto, se liberan los horarios fijos del abono anterior.
+              </Alert>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border bg-surface-muted/30 p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-text">
+                  <NavIcon name="plans" className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text">Sin plan activo</p>
+                  <p className="mt-1 text-sm text-text-muted">
+                    Seleccioná un plan con las mini cards y confirmá la asignación.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div>
-            <p className="mb-3 text-sm font-semibold text-text">Elegí un plan</p>
+            <p className="mb-3 text-sm font-semibold text-text">
+              {inGraceWithoutActive ? 'O asigná otro plan' : 'Elegí un plan'}
+            </p>
             {isLoadingPlans ? (
               <p className="text-sm text-text-muted">Cargando planes...</p>
             ) : plans.length === 0 ? (
@@ -414,6 +487,15 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
         plan={activePlan}
         onClose={() => setCancelModalOpen(false)}
         onSuccess={handleCancelSuccess}
+      />
+
+      <RenewPlanModal
+        open={renewModalOpen}
+        onClose={() => setRenewModalOpen(false)}
+        clientId={clientId}
+        renewal={renewal}
+        client={client}
+        onRenewed={handleRenewSuccess}
       />
 
       <PlanPaymentModal

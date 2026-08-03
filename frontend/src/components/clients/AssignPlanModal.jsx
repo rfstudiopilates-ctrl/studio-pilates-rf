@@ -64,6 +64,7 @@ export default function AssignPlanModal({
   const searchResults = clientsData?.items || [];
   const selectedPlan = plans.find((plan) => String(plan.id) === String(selectedPlanId));
   const activePlan = clientPlansData?.activePlan;
+  const renewal = clientPlansData?.renewal;
 
   const previewEndDate = useMemo(() => {
     if (!selectedPlan || !startDate) {
@@ -113,7 +114,7 @@ export default function AssignPlanModal({
 
     if (activePlan) {
       setError(
-        `Este cliente ya tiene el plan "${activePlan.planName}" activo. Cancelalo desde su detalle antes de asignar uno nuevo.`
+        `Este cliente ya tiene el plan "${activePlan.planName}" activo. Renovalo o cancelalo desde su ficha antes de asignar uno nuevo.`
       );
       return;
     }
@@ -373,7 +374,16 @@ export default function AssignPlanModal({
             {selectedClient && activePlan ? (
               <Alert variant="error" className="py-2 text-xs">
                 Este cliente ya tiene el plan <strong>{activePlan.planName}</strong> activo.
-                Cancelalo desde el detalle del cliente antes de asignar uno nuevo.
+                Renovalo o cancelalo desde su ficha antes de asignar uno nuevo.
+              </Alert>
+            ) : null}
+
+            {selectedClient && !activePlan && renewal?.inGrace ? (
+              <Alert variant="info" className="py-2 text-xs">
+                Plan vencido en gracia ({renewal.graceDaysRemaining} día
+                {renewal.graceDaysRemaining === 1 ? '' : 's'}). Si asignás otro plan acá, se
+                liberan los horarios fijos. Para mantenerlos, renovalo desde la ficha del
+                cliente.
               </Alert>
             ) : null}
 

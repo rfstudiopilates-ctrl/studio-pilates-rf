@@ -76,6 +76,11 @@ export const reservationsApi = {
     return data.data;
   },
 
+  getPastOccurrences: async (params) => {
+    const { data } = await api.get('/reservations/recurring/past-occurrences', { params });
+    return data.data;
+  },
+
   updateRecurring: async (id, payload) => {
     const { data } = await api.patch(`/reservations/recurring/${id}`, payload);
     return data.data;

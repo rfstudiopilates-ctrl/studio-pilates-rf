@@ -36,6 +36,11 @@ export const plansApi = {
     return data.data;
   },
 
+  renewClientPlan: async (clientId, payload = {}) => {
+    const { data } = await api.post(`/plans/client/${clientId}/renew`, payload);
+    return data.data;
+  },
+
   cancelAssignment: async (assignmentId, payload = {}) => {
     const { data } = await api.patch(`/plans/assignment/${assignmentId}/cancel`, payload);
     return data.data;

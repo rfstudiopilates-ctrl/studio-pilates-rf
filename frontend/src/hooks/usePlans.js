@@ -70,6 +70,19 @@ export function useAssignPlan() {
   });
 }
 
+export function useRenewPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, payload }) => plansApi.renewClientPlan(clientId, payload || {}),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: PLANS_KEY });
+      queryClient.invalidateQueries({ queryKey: ['finances', 'client', variables.clientId] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['reservations'] });
+    },
+  });
+}
+
 export function useCancelPlanAssignment() {
   const queryClient = useQueryClient();
   return useMutation({

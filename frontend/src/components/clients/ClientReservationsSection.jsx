@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import GuestReservationConfirmModal from '../reservations/GuestReservationConfirmModal';
+import PastAttendanceModal from './PastAttendanceModal';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import NavIcon from '../ui/NavIcon';
@@ -27,6 +28,7 @@ import {
 import { useWeeklySchedule } from '../../hooks/useSchedules';
 import { addDaysToDate, formatDateDisplay, getTodayInArgentina, normalizeDateInput } from '../../lib/dates';
 import { getErrorMessage } from '../../lib/formErrors';
+import { reservationsApi } from '../../services/reservationsService';
 
 function StatusBadge({ status, labels, styles }) {
   return (
@@ -62,6 +64,8 @@ export function ClientReservationsSection({ clientId }) {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [guestReservation, setGuestReservation] = useState(null);
+  const [pastAttendanceModal, setPastAttendanceModal] = useState(null);
+  const [isCheckingPast, setIsCheckingPast] = useState(false);
 
   const activePlan = plansData?.activePlan;
   const allowsFixedSchedules = planAllowsFixedSchedules(activePlan);
@@ -109,31 +113,90 @@ export function ClientReservationsSection({ clientId }) {
   const remainingSlots = Math.max(0, slotLimit - occupyingRecurring.length);
   const canAddMore = allowsFixedSchedules && remainingSlots > 0;
 
+  function buildCreateFeedback(result) {
+    const created = result?.processing?.created ?? 0;
+    const errors = result?.processing?.errors ?? 0;
+    const firstError = result?.processing?.errorDetails?.[0]?.message;
+    const attended = Number(result?.pastAttendance?.attended || 0);
+    const missed = Number(result?.pastAttendance?.missed || 0);
+    const pastSuffix =
+      result?.pastAttendance != null
+        ? ` ${attended} asistencia${attended === 1 ? '' : 's'} cargada${attended === 1 ? '' : 's'} · ${missed} como recuperación.`
+        : '';
+
+    if (created > 0) {
+      return {
+        type: 'success',
+        message:
+          errors > 0
+            ? `Horario fijo asignado. Se reservaron ${created} clases de ese turno. ${errors} no se pudieron crear${firstError ? `: ${firstError}` : '.'}${pastSuffix}`
+            : `Horario fijo asignado. Se reservaron ${created} clases de ese turno en las próximas semanas.${pastSuffix}`,
+      };
+    }
+
+    return {
+      type: firstError ? 'error' : 'success',
+      message:
+        firstError ||
+        `El horario fijo quedó asignado.${pastSuffix || ' No se generaron reservas nuevas a futuro.'}`,
+    };
+  }
+
+  async function submitCreateRecurring(pastAttendance) {
+    const result = await createRecurring.mutateAsync({
+      clientId: Number(clientId),
+      scheduleTemplateId: Number(selectedTemplateId),
+      ...(pastAttendance ? { pastAttendance } : {}),
+    });
+
+    setSelectedTemplateId('');
+    setPastAttendanceModal(null);
+    setFeedback(buildCreateFeedback(result));
+  }
+
   async function handleCreateRecurring() {
     if (!selectedTemplateId || !canAddMore) return;
     setFeedback(null);
+    setIsCheckingPast(true);
 
     try {
-      const result = await createRecurring.mutateAsync({
+      const preview = await reservationsApi.getPastOccurrences({
         clientId: Number(clientId),
         scheduleTemplateId: Number(selectedTemplateId),
       });
 
-      const created = result?.processing?.created ?? 0;
-      const errors = result?.processing?.errors ?? 0;
-      const firstError = result?.processing?.errorDetails?.[0]?.message;
+      if (preview?.requiresConfirmation && preview.occurrences?.length > 0) {
+        setPastAttendanceModal({
+          templateId: Number(selectedTemplateId),
+          occurrences: preview.occurrences,
+        });
+        return;
+      }
 
-      setSelectedTemplateId('');
+      await submitCreateRecurring(null);
+    } catch (error) {
+      const fields = error?.response?.data?.error?.fields;
+      if (fields?.code === 'PAST_ATTENDANCE_REQUIRED' && fields?.occurrences?.length) {
+        setPastAttendanceModal({
+          templateId: Number(selectedTemplateId),
+          occurrences: fields.occurrences,
+        });
+        return;
+      }
+
       setFeedback({
-        type: created > 0 ? 'success' : 'error',
-        message:
-          created > 0
-            ? errors > 0
-              ? `Horario fijo asignado. Se reservaron ${created} clases de ese turno. ${errors} no se pudieron crear${firstError ? `: ${firstError}` : '.'}`
-              : `Horario fijo asignado. Se reservaron ${created} clases de ese turno en las próximas semanas.`
-            : firstError ||
-              'El horario fijo quedó asignado, pero no se generaron reservas nuevas. Si el cliente ya tenía cancelaciones previas de ese turno, probá Generar clases o quitá y volvé a asignar el fijo.',
+        type: 'error',
+        message: getErrorMessage(error, 'No se pudo asignar el horario fijo.'),
       });
+    } finally {
+      setIsCheckingPast(false);
+    }
+  }
+
+  async function handleConfirmPastAttendance(pastAttendance) {
+    setFeedback(null);
+    try {
+      await submitCreateRecurring(pastAttendance);
     } catch (error) {
       setFeedback({
         type: 'error',
@@ -415,7 +478,7 @@ export function ClientReservationsSection({ clientId }) {
                 </div>
                 <Button
                   onClick={handleCreateRecurring}
-                  isLoading={createRecurring.isPending}
+                  isLoading={createRecurring.isPending || isCheckingPast}
                   disabled={!selectedTemplateId}
                   className="w-full sm:w-auto"
                 >
@@ -529,6 +592,14 @@ export function ClientReservationsSection({ clientId }) {
           </div>
         </section>
       )}
+
+      <PastAttendanceModal
+        open={Boolean(pastAttendanceModal)}
+        occurrences={pastAttendanceModal?.occurrences || []}
+        onClose={() => setPastAttendanceModal(null)}
+        onConfirm={handleConfirmPastAttendance}
+        isSubmitting={createRecurring.isPending}
+      />
 
       <GuestReservationConfirmModal
         open={Boolean(guestReservation)}
