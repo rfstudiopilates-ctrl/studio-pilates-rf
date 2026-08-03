@@ -1,6 +1,8 @@
 import { pool } from '../../config/database.js';
 import { formatTimeDisplay, toDateString } from '../../utils/dates.js';
 
+const ADMIN_REASSIGN_REASON_PREFIX = 'Reasignación directa';
+
 function mapClassSummary(row, prefix) {
   if (!row) {
     return null;
@@ -14,35 +16,53 @@ function mapClassSummary(row, prefix) {
   };
 }
 
+function resolveOrigin(row) {
+  const reason = String(row.reason || '');
+  if (reason.startsWith(ADMIN_REASSIGN_REASON_PREFIX)) {
+    return 'admin';
+  }
+  return 'client';
+}
+
 function mapScheduleChangeRow(row) {
   if (!row) {
     return null;
   }
+
+  const origin = resolveOrigin(row);
 
   return {
     id: row.id,
     reservationId: row.reservation_id,
     clientId: row.client_id,
     clientName: row.client_name,
+    clientUsername: row.client_username || null,
+    clientPhone: row.client_phone || null,
     fromGeneratedClassId: row.from_generated_class_id,
     toGeneratedClassId: row.to_generated_class_id,
     status: row.status,
     reason: row.reason,
     adminNotes: row.admin_notes,
     reviewedByAdminId: row.reviewed_by_admin_id,
+    reviewedByAdminName: row.reviewed_by_admin_name || null,
     reviewedAt: row.reviewed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     fromClass: mapClassSummary(row, 'from'),
     toClass: mapClassSummary(row, 'to'),
     reservationStatus: row.reservation_status,
+    origin,
+    originLabel: origin === 'admin' ? 'Admin' : 'Cliente',
   };
 }
 
 const baseSelect = `
   SELECT scr.*,
          c.full_name AS client_name,
+         c.username AS client_username,
+         c.phone AS client_phone,
          r.status AS reservation_status,
+         u.full_name AS reviewed_by_admin_name,
          gc_from.id AS from_class_id,
          gc_from.class_date AS from_class_date,
          gc_from.start_time AS from_start_time,
@@ -56,6 +76,7 @@ const baseSelect = `
   INNER JOIN class_reservations r ON r.id = scr.reservation_id
   INNER JOIN generated_classes gc_from ON gc_from.id = scr.from_generated_class_id
   INNER JOIN generated_classes gc_to ON gc_to.id = scr.to_generated_class_id
+  LEFT JOIN users u ON u.id = scr.reviewed_by_admin_id
 `;
 
 export async function createScheduleChangeRequest(data, connection = pool) {
@@ -110,6 +131,12 @@ export async function findReusableByReservationId(reservationId, connection = po
 export async function listScheduleChanges({
   status,
   clientId,
+  search,
+  origin,
+  from,
+  to,
+  sortBy = 'created_at',
+  sortOrder = 'desc',
   page = 1,
   limit = 50,
 }) {
@@ -126,12 +153,45 @@ export async function listScheduleChanges({
     params.push(clientId);
   }
 
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    conditions.push('(c.full_name LIKE ? OR c.username LIKE ? OR c.phone LIKE ?)');
+    params.push(term, term, term);
+  }
+
+  if (origin === 'admin') {
+    conditions.push(`scr.reason LIKE ?`);
+    params.push(`${ADMIN_REASSIGN_REASON_PREFIX}%`);
+  } else if (origin === 'client') {
+    conditions.push(`(scr.reason IS NULL OR scr.reason NOT LIKE ?)`);
+    params.push(`${ADMIN_REASSIGN_REASON_PREFIX}%`);
+  }
+
+  if (from) {
+    conditions.push('gc_from.class_date >= ?');
+    params.push(from);
+  }
+
+  if (to) {
+    conditions.push('gc_from.class_date <= ?');
+    params.push(to);
+  }
+
   const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const offset = (page - 1) * limit;
+  const direction = String(sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+  const orderColumn =
+    sortBy === 'class_date'
+      ? 'gc_from.class_date'
+      : sortBy === 'client_name'
+        ? 'c.full_name'
+        : 'scr.created_at';
 
   const [countRows] = await pool.query(
     `SELECT COUNT(*) AS total
      FROM schedule_change_requests scr
+     INNER JOIN clients c ON c.id = scr.client_id
+     INNER JOIN generated_classes gc_from ON gc_from.id = scr.from_generated_class_id
      ${whereClause}`,
     params
   );
@@ -139,7 +199,7 @@ export async function listScheduleChanges({
   const [rows] = await pool.query(
     `${baseSelect}
      ${whereClause}
-     ORDER BY scr.created_at DESC
+     ORDER BY ${orderColumn} ${direction}, scr.id DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );

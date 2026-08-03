@@ -24,6 +24,12 @@ export const adminReassignSchema = z.object({
 
 export const listScheduleChangesQuerySchema = z.object({
   status: z.enum(SCHEDULE_CHANGE_STATUSES).optional(),
+  search: z.string().max(120).optional(),
+  origin: z.enum(['client', 'admin']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  sortBy: z.enum(['created_at', 'class_date', 'client_name']).optional(),
+  sortOrder: z.enum(['asc', 'desc']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });

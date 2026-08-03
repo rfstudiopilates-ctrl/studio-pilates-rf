@@ -31,11 +31,21 @@ function getPlanPeriodRange(clientPlan) {
  * - más días de horario fijo ya ocurridos (hoy/pasado) sin ninguna reserva
  *   (ni cancelada). Si canceló a tiempo, el cupo se libera para recuperar
  *   el mismo día u otro día.
+ *
+ * `excludeDate`: al reservar/generar ese día, no contarlo como fantasma de sí mismo
+ * (si no, el viernes fijo se auto-bloquea el viernes cuando aún no hay fila).
  */
-async function countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, connection) {
+async function countWeeklySlotsUsed(
+  clientPlan,
+  weekStart,
+  weekEnd,
+  connection,
+  { excludeDate = null } = {}
+) {
   const db = resolveConnection(connection);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
   const today = getTodayInArgentina();
+  const excluded = excludeDate ? toDateString(excludeDate) : null;
 
   const [reservationDates, recurringDays, datesWithAnyReservation] = await Promise.all([
     listConsumingReservationDatesInRange(
@@ -61,6 +71,7 @@ async function countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, connection) 
     if (dateInWeek < weekStart || dateInWeek > weekEnd) continue;
     if (planStart && dateInWeek < planStart) continue;
     if (planEnd && dateInWeek > planEnd) continue;
+    if (excluded && dateInWeek === excluded) continue;
 
     // Si hay reserva cancelada a tiempo ese día, NO cuenta: el cliente puede recuperar.
     // Solo cuenta el fijo “fantasma” cuando no hubo ninguna reserva generada.
@@ -143,7 +154,9 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
   const weekEnd = addDaysToDate(weekStart, 6);
 
   const [weeklyUsed, monthlyUsed] = await Promise.all([
-    countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db),
+    countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db, {
+      excludeDate: normalizedClassDate,
+    }),
     countConsumingReservationsInRange(
       clientPlan.clientId,
       clientPlan.id,

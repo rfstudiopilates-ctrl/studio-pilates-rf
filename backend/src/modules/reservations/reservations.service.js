@@ -51,6 +51,7 @@ import {
   decrementClientPlanUsage,
   getAvailabilityForClassDate,
   incrementClientPlanUsage,
+  refreshPlanUsageCounters,
   syncClientPlanCounters,
 } from '../plans/plans.usage.js';
 
@@ -369,6 +370,32 @@ export async function createReservation({
     }
 
     await connection.commit();
+
+    // Historial solo para reservas manuales (no fijos auto-generados).
+    if (finalBookingType !== 'recurring') {
+      try {
+        const when = `${classItem.classDate} ${classItem.startTime}`;
+        const byAdmin = Boolean(createdByAdminId);
+        await clientsRepository.createClientHistory({
+          clientId,
+          actionType: 'client_updated',
+          description: byAdmin
+            ? `Reserva asignada por admin: ${when} (${finalBookingType})`
+            : `Reserva hecha por la cliente: ${when} (${finalBookingType})`,
+          metadata: {
+            reservationId: reservation.id,
+            generatedClassId,
+            bookingType: finalBookingType,
+            createdByAdminId: createdByAdminId || null,
+            status: finalStatus,
+          },
+          performedByType: byAdmin ? 'admin' : 'client',
+          performedById: byAdmin ? createdByAdminId : clientId,
+        });
+      } catch {
+        // No fallar la reserva por el historial.
+      }
+    }
 
     if (finalStatus === 'confirmed') {
       runNotificationSafely(
@@ -784,6 +811,19 @@ export async function cancelReservation({
     });
 
     await connection.commit();
+
+    // Si el cupo volvió al abono, regenerar fijos pendientes de la semana
+    // (ej. viernes que aún no tenía fila y quedó trabado por cupo).
+    if (returnedToPlan) {
+      try {
+        await processRecurringReservations({ clientId: reservation.clientId });
+        if (reservation.clientPlanId) {
+          await refreshPlanUsageCounters(reservation.clientPlanId);
+        }
+      } catch {
+        // El cron posterior puede completar; no fallar la cancelación.
+      }
+    }
 
     if (!silent && nextStatus === 'cancelled') {
       runNotificationSafely(

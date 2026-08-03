@@ -396,6 +396,10 @@ export async function adminReassignReservation({
       connection
     );
 
+    const adminReason = adminNotes
+      ? `Reasignación directa por el administrador: ${adminNotes}`
+      : 'Reasignación directa por el administrador';
+
     const request =
       existingPending ||
       (await scheduleChangesRepository.createScheduleChangeRequest(
@@ -404,7 +408,7 @@ export async function adminReassignReservation({
           clientId: reservation.clientId,
           fromGeneratedClassId: fromClassId,
           toGeneratedClassId,
-          reason: adminNotes || 'Reasignación directa por el administrador',
+          reason: adminReason,
         },
         connection
       ));
@@ -415,9 +419,7 @@ export async function adminReassignReservation({
         status: 'approved',
         fromGeneratedClassId: fromClassId,
         toGeneratedClassId,
-        reason: existingPending
-          ? existingPending.reason || adminNotes || 'Reasignación directa por el administrador'
-          : adminNotes || 'Reasignación directa por el administrador',
+        reason: existingPending ? existingPending.reason || adminReason : adminReason,
         adminNotes: adminNotes || null,
         reviewedByAdminId: adminId,
         reviewedAt: new Date(),
