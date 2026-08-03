@@ -301,6 +301,8 @@ export async function listReservations({
   to,
   status,
   bookingType,
+  bookingGroup,
+  createdBy,
   clientId,
   classId,
   cancelledBy,
@@ -322,6 +324,16 @@ export async function listReservations({
   if (bookingType) {
     conditions.push('r.booking_type = ?');
     params.push(bookingType);
+  } else if (bookingGroup === 'manual') {
+    conditions.push("r.booking_type IN ('standard', 'recovery', 'drop_in')");
+  } else if (bookingGroup === 'fixed') {
+    conditions.push("r.booking_type = 'recurring'");
+  }
+
+  if (createdBy === 'admin') {
+    conditions.push('r.created_by_admin_id IS NOT NULL');
+  } else if (createdBy === 'client') {
+    conditions.push('r.created_by_admin_id IS NULL');
   }
 
   if (clientId) {
@@ -359,10 +371,12 @@ export async function listReservations({
       ? 'r.cancelled_at'
       : sortBy === 'client_name'
         ? 'c.full_name'
-        : 'gc.class_date';
+        : sortBy === 'created_at'
+          ? 'r.created_at'
+          : 'gc.class_date';
   const orderDirection = String(sortOrder).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
   const secondaryOrder =
-    sortBy === 'cancelled_at'
+    sortBy === 'cancelled_at' || sortBy === 'created_at'
       ? 'gc.class_date DESC, gc.start_time DESC'
       : 'gc.start_time ASC';
 
