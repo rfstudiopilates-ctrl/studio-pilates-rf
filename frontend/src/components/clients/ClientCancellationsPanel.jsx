@@ -8,6 +8,7 @@ import NavIcon from '../ui/NavIcon';
 import { Select } from '../ui/Select';
 import {
   BOOKING_TYPE_LABELS,
+  RESERVATION_STATUS_LABELS,
   RESERVATION_STATUS_STYLES,
 } from '../../constants/reservations';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -33,6 +34,7 @@ const DEFAULT_FILTERS = {
   search: '',
   cancelledBy: '',
   bookingType: '',
+  quotaOutcome: '',
   cleared: 'open',
   sortBy: 'cancelled_at',
   sortOrder: 'desc',
@@ -47,6 +49,38 @@ function getInitials(name = '') {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
     .join('');
+}
+
+function getQuotaOutcome(reservation) {
+  if (reservation.status === 'no_show') {
+    return 'consumed';
+  }
+  if (reservation.status === 'cancelled' && reservation.consumesPlan) {
+    return 'returned';
+  }
+  return 'none';
+}
+
+function getQuotaBadge(outcome) {
+  if (outcome === 'returned') {
+    return {
+      label: 'Cupo devuelto',
+      className: 'border-emerald-100 bg-emerald-50 text-emerald-800',
+      hint: 'Canceló a tiempo: el cupo volvió al abono (puede recuperar otro día).',
+    };
+  }
+  if (outcome === 'consumed') {
+    return {
+      label: 'Cupo consumido',
+      className: 'border-red-100 bg-red-50 text-danger',
+      hint: 'Ausente / fuera de plazo: la clase se descontó del abono.',
+    };
+  }
+  return {
+    label: 'Sin impacto en cupo',
+    className: 'border-border bg-surface-muted text-text-muted',
+    hint: 'No consumía plan (p. ej. cambio de horario o solicitud sin cupo).',
+  };
 }
 
 export default function ClientCancellationsPanel() {
@@ -70,6 +104,7 @@ export default function ClientCancellationsPanel() {
     debouncedSearch,
     filters.cancelledBy,
     filters.bookingType,
+    filters.quotaOutcome,
     filters.cleared,
     filters.sortBy,
     filters.sortOrder,
@@ -79,7 +114,8 @@ export default function ClientCancellationsPanel() {
 
   const listParams = useMemo(
     () => ({
-      status: 'cancelled',
+      statusGroup: filters.quotaOutcome ? undefined : 'closures',
+      quotaOutcome: filters.quotaOutcome || undefined,
       from: filters.from || undefined,
       to: filters.to || undefined,
       search: debouncedSearch.trim() || undefined,
@@ -102,7 +138,7 @@ export default function ClientCancellationsPanel() {
   const pagination = data?.pagination;
   const openCountParams = useMemo(
     () => ({
-      status: 'cancelled',
+      statusGroup: 'closures',
       from: addDaysToDate(today, -45),
       to: addDaysToDate(today, 30),
       cleared: 'open',
@@ -212,12 +248,15 @@ export default function ClientCancellationsPanel() {
               <NavIcon name="close" className="h-5 w-5 text-text" />
             </div>
             <div>
-              <p className="text-base font-semibold text-text">Cancelaciones</p>
+              <p className="text-base font-semibold text-text">Cancelaciones y cupo</p>
               <p className="text-sm text-text-muted">
                 {isLoading
                   ? 'Cargando...'
                   : `${pagination?.total ?? 0} en esta vista · ${openCount} sin revisar`}
                 {isFetching && !isLoading ? ' · Actualizando' : ''}
+              </p>
+              <p className="mt-1 text-xs text-text-muted">
+                Acá ves si al cancelar se devolvió el cupo o se consumió (ausente / fuera de plazo).
               </p>
             </div>
           </div>
@@ -234,6 +273,16 @@ export default function ClientCancellationsPanel() {
             value={filters.search}
             onChange={(event) => updateFilter('search', event.target.value)}
           />
+          <Select
+            label="Impacto en cupo"
+            value={filters.quotaOutcome}
+            onChange={(event) => updateFilter('quotaOutcome', event.target.value)}
+          >
+            <option value="">Todos</option>
+            <option value="returned">Cupo devuelto</option>
+            <option value="consumed">Cupo consumido</option>
+            <option value="none">Sin impacto en cupo</option>
+          </Select>
           <Select
             label="Quién canceló"
             value={filters.cancelledBy}
@@ -318,6 +367,8 @@ export default function ClientCancellationsPanel() {
           {items.map((reservation) => {
             const isAssigning = assignForId === reservation.id;
             const isBusy = busyId === reservation.id;
+            const outcome = getQuotaOutcome(reservation);
+            const quotaBadge = getQuotaBadge(outcome);
 
             return (
               <article
@@ -338,9 +389,19 @@ export default function ClientCancellationsPanel() {
                           {reservation.clientName}
                         </Link>
                         <span
-                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${RESERVATION_STATUS_STYLES.cancelled}`}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                            RESERVATION_STATUS_STYLES[reservation.status] ||
+                            RESERVATION_STATUS_STYLES.cancelled
+                          }`}
                         >
-                          Cancelada
+                          {RESERVATION_STATUS_LABELS[reservation.status] ||
+                            (reservation.status === 'no_show' ? 'Ausente' : 'Cancelada')}
+                        </span>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${quotaBadge.className}`}
+                          title={quotaBadge.hint}
+                        >
+                          {quotaBadge.label}
                         </span>
                         {reservation.adminClearedAt ? (
                           <span className="rounded-full border border-border bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-text-muted">
@@ -358,15 +419,14 @@ export default function ClientCancellationsPanel() {
                         {reservation.endTime ? `–${reservation.endTime}` : ''}
                       </p>
                       <p className="text-xs text-text-muted">
-                        Canceló{' '}
-                        {CANCELLED_BY_LABELS[reservation.cancelledBy] || '—'}
+                        Canceló {CANCELLED_BY_LABELS[reservation.cancelledBy] || '—'}
                         {reservation.cancelledAt
                           ? ` · ${formatDateTime(reservation.cancelledAt)}`
                           : ''}
                         {' · '}
-                        {BOOKING_TYPE_LABELS[reservation.bookingType] ||
-                          reservation.bookingType}
+                        {BOOKING_TYPE_LABELS[reservation.bookingType] || reservation.bookingType}
                       </p>
+                      <p className="text-xs text-text-muted">{quotaBadge.hint}</p>
                       {reservation.cancellationReason ? (
                         <p className="text-xs text-text-muted">
                           Motivo: {reservation.cancellationReason}
@@ -390,22 +450,24 @@ export default function ClientCancellationsPanel() {
                         Limpiar
                       </Button>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant={isAssigning ? 'secondary' : 'primary'}
-                      disabled={isBusy}
-                      onClick={() => {
-                        if (isAssigning) {
-                          setAssignForId(null);
+                    {outcome === 'returned' || outcome === 'none' ? (
+                      <Button
+                        type="button"
+                        variant={isAssigning ? 'secondary' : 'primary'}
+                        disabled={isBusy}
+                        onClick={() => {
+                          if (isAssigning) {
+                            setAssignForId(null);
+                            setAssignClassId('');
+                            return;
+                          }
+                          setAssignForId(reservation.id);
                           setAssignClassId('');
-                          return;
-                        }
-                        setAssignForId(reservation.id);
-                        setAssignClassId('');
-                      }}
-                    >
-                      {isAssigning ? 'Cerrar' : 'Asignar horario'}
-                    </Button>
+                        }}
+                      >
+                        {isAssigning ? 'Cerrar' : 'Asignar horario'}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -439,8 +501,7 @@ export default function ClientCancellationsPanel() {
       {pagination && pagination.totalPages > 1 ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-border bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-text-muted">
-            Página {pagination.page} de {pagination.totalPages} · {pagination.total}{' '}
-            cancelaciones
+            Página {pagination.page} de {pagination.totalPages} · {pagination.total} registros
           </p>
           <div className="flex gap-2">
             <Button

@@ -56,7 +56,7 @@ export default function ClientsListPage() {
   const today = getTodayInArgentina();
 
   const { data: openCancellationsData } = useReservationsList({
-    status: 'cancelled',
+    statusGroup: 'closures',
     from: addDaysToDate(today, -45),
     to: addDaysToDate(today, 30),
     cleared: 'open',
@@ -156,7 +156,7 @@ export default function ClientsListPage() {
 
   const subtitle = useMemo(() => {
     if (activeTab === 'cancelaciones') {
-      return 'Revisá cancelaciones, limpiá las ya vistas o asigná un nuevo horario.';
+      return 'Cancelaciones y ausencias: quién canceló y si el cupo se devolvió o se consumió.';
     }
 
     if (activeTab === 'extras') {
