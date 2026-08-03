@@ -1,9 +1,8 @@
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE = `sprf-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `sprf-runtime-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [
-  '/',
   '/offline.html',
   '/manifest.webmanifest',
   '/favicon.svg',
@@ -25,11 +24,42 @@ function absoluteAsset(path) {
   }
 }
 
+function contentType(response) {
+  return (response.headers.get('content-type') || '').toLowerCase();
+}
+
+function isValidHtmlResponse(response) {
+  return response.ok && contentType(response).includes('text/html');
+}
+
+function isValidAssetResponse(response, pathname) {
+  if (!response.ok) {
+    return false;
+  }
+
+  const type = contentType(response);
+
+  if (pathname.endsWith('.css')) {
+    return type.includes('text/css');
+  }
+
+  if (pathname.endsWith('.js')) {
+    return type.includes('javascript') || type.includes('ecmascript');
+  }
+
+  // No cachear HTML (p.ej. fallback SPA) como si fuera un asset.
+  if (type.includes('text/html')) {
+    return false;
+  }
+
+  return true;
+}
+
 async function networkFirstNavigation(request) {
   try {
     const response = await fetch(request);
 
-    if (response.ok) {
+    if (isValidHtmlResponse(response)) {
       const cache = await caches.open(RUNTIME_CACHE);
       cache.put(request, response.clone());
     }
@@ -45,20 +75,27 @@ async function networkFirstNavigation(request) {
   }
 }
 
-async function staleWhileRevalidate(request) {
+async function networkFirstAsset(request) {
   const cache = await caches.open(RUNTIME_CACHE);
-  const cached = await cache.match(request);
+  const pathname = new URL(request.url).pathname;
 
-  const networkPromise = fetch(request)
-    .then((response) => {
-      if (response.ok) {
-        cache.put(request, response.clone());
-      }
-      return response;
-    })
-    .catch(() => null);
+  try {
+    const response = await fetch(request);
 
-  return cached || networkPromise || caches.match('/offline.html');
+    if (isValidAssetResponse(response, pathname)) {
+      cache.put(request, response.clone());
+    }
+
+    return response;
+  } catch {
+    const cached = await cache.match(request);
+    if (cached && isValidAssetResponse(cached, pathname)) {
+      return cached;
+    }
+
+    // Nunca devolver offline.html (HTML) como CSS/JS: deja la UI sin estilos.
+    return Response.error();
+  }
 }
 
 self.addEventListener('install', (event) => {
@@ -104,7 +141,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (isStaticAsset(url.pathname)) {
-    event.respondWith(staleWhileRevalidate(request));
+    event.respondWith(networkFirstAsset(request));
   }
 });
 
@@ -178,5 +215,11 @@ self.addEventListener('notificationclick', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+
+  if (event.data?.type === 'CLEAR_CACHES') {
+    event.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+    );
   }
 });

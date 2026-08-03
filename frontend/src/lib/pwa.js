@@ -3,6 +3,7 @@ const INSTALL_DISMISSED_KEY = 'sprf-pwa-install-dismissed';
 const IOS_GUIDE_DISMISSED_KEY = 'sprf-pwa-ios-guide-dismissed';
 const APP_INSTALLED_KEY = 'sprf-pwa-installed';
 const APP_INSTALLED_COOKIE = 'sprf_pwa_installed';
+const STYLE_RECOVERY_KEY = 'sprf-style-recovery-v5';
 
 let deferredInstallPrompt = null;
 let waitingWorker = null;
@@ -396,8 +397,105 @@ export async function promptInstallApp() {
   return choice;
 }
 
+function appStylesSeemBroken() {
+  if (typeof document === 'undefined' || !document.body) {
+    return false;
+  }
+
+  const probe = document.createElement('div');
+  probe.className = 'hidden';
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.position = 'fixed';
+  probe.style.left = '-9999px';
+  document.body.appendChild(probe);
+  const broken = getComputedStyle(probe).display !== 'none';
+  probe.remove();
+  return broken;
+}
+
+async function waitForStylesheets(timeoutMs = 2500) {
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'));
+  if (links.length === 0) {
+    await new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+    return;
+  }
+
+  await Promise.race([
+    Promise.all(
+      links.map(
+        (link) =>
+          new Promise((resolve) => {
+            if (link.sheet) {
+              resolve();
+              return;
+            }
+            link.addEventListener('load', () => resolve(), { once: true });
+            link.addEventListener('error', () => resolve(), { once: true });
+          })
+      )
+    ),
+    new Promise((resolve) => {
+      setTimeout(resolve, timeoutMs);
+    }),
+  ]);
+}
+
+export async function recoverIfStylesBroken() {
+  if (typeof window === 'undefined' || !import.meta.env.PROD) {
+    return false;
+  }
+
+  await waitForStylesheets();
+
+  if (!appStylesSeemBroken()) {
+    try {
+      sessionStorage.removeItem(STYLE_RECOVERY_KEY);
+    } catch {
+      // ignore
+    }
+    return false;
+  }
+
+  try {
+    if (sessionStorage.getItem(STYLE_RECOVERY_KEY) === '1') {
+      return false;
+    }
+    sessionStorage.setItem(STYLE_RECOVERY_KEY, '1');
+  } catch {
+    // Si sessionStorage falla, igual intentamos limpiar una vez.
+  }
+
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+
+    if (isServiceWorkerSupported()) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+  } catch {
+    // Continuar con reload aunque falle la limpieza parcial.
+  }
+
+  window.location.reload();
+  return true;
+}
+
 export async function setupPwa() {
   if (!import.meta.env.PROD) {
+    return null;
+  }
+
+  const recovered = await recoverIfStylesBroken();
+  if (recovered) {
     return null;
   }
 
