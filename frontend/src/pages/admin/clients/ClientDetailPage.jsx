@@ -6,7 +6,7 @@ import {
   ClientPlanSection,
 } from '../../../components/clients/ClientAccountSections';
 import { ClientReservationsSection } from '../../../components/clients/ClientReservationsSection';
-import ClientHistoryTimeline from '../../../components/clients/ClientHistoryTimeline';
+import ClientHistoryPanel from '../../../components/clients/ClientHistoryPanel';
 import ClientProfileHeader, { ClientBackLink } from '../../../components/clients/ClientProfileHeader';
 import SendCredentialsWhatsAppModal from '../../../components/clients/SendCredentialsWhatsAppModal';
 import { Alert } from '../../../components/ui/Alert';
@@ -36,7 +36,7 @@ export default function ClientDetailPage() {
   const [credentialsModalOpen, setCredentialsModalOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
 
-  const { data, isLoading, isError } = useClientDetail(id, { page: historyPage, limit: 10 });
+  const { data, isLoading, isError } = useClientDetail(id, { page: historyPage, limit: 20 });
   const deleteClient = useDeleteClient();
 
   const client = data?.client;
@@ -191,35 +191,12 @@ export default function ClientDetailPage() {
         ) : null}
 
         {activeTab === 'history' ? (
-          <section className="rounded-2xl border border-border bg-white p-6 shadow-[0_8px_30px_rgba(26,26,26,0.04)]">
-            <h2 className="mb-5 text-lg font-semibold text-text">Historial de actividad</h2>
-
-            <ClientHistoryTimeline items={history?.items || []} />
-
-            {history?.pagination?.totalPages > 1 ? (
-              <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-text-muted">
-                  Página {history.pagination.page} de {history.pagination.totalPages}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    disabled={historyPage <= 1}
-                    onClick={() => setHistoryPage((current) => current - 1)}
-                  >
-                    Anterior
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={historyPage >= history.pagination.totalPages}
-                    onClick={() => setHistoryPage((current) => current + 1)}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </section>
+          <ClientHistoryPanel
+            clientId={client.id}
+            history={history}
+            historyPage={historyPage}
+            onHistoryPageChange={setHistoryPage}
+          />
         ) : null}
       </div>
 

@@ -289,9 +289,19 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
               />
             </div>
 
+            {Number(activePlan.availability?.catchUpSlots || activePlan.catchUpSlots || 0) > 0 ? (
+              <Alert variant="info">
+                Tiene {activePlan.availability?.catchUpSlots || activePlan.catchUpSlots} clase(s) de
+                recuperación (catch-up): el plan esperaba{' '}
+                {activePlan.availability?.expectedUsed ?? '—'} usadas a esta altura y lleva{' '}
+                {activePlan.monthlyClassesUsed}. Eso le permite reservar días extra sin haber
+                cancelado. Detalle en el tab Historial.
+              </Alert>
+            ) : null}
+
             <Alert variant="info">
-              Para registrar otro plan, primero cancelá el actual. Así se mantiene un solo
-              plan vigente y el cupo de clases queda claro.
+              Para registrar otro plan, primero cancelá el actual. Así se mantiene un solo plan
+              vigente y el cupo de clases queda claro.
             </Alert>
           </div>
         </div>
