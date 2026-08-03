@@ -223,6 +223,10 @@ export function getPlanAvailability(clientPlan) {
       weeklyRemaining: 0,
       monthlyRemaining: 0,
       catchUpSlots: 0,
+      expectedUsed: 0,
+      weeklyUsed: 0,
+      monthlyUsed: 0,
+      effectiveWeeklyLimit: 0,
       canBook: false,
     };
   }
@@ -240,6 +244,10 @@ export function getPlanAvailability(clientPlan) {
     weeklyRemaining: Math.max(0, weeklyRemaining),
     monthlyRemaining: Math.max(0, monthlyRemaining),
     catchUpSlots,
+    expectedUsed: Math.max(0, Number(clientPlan.expectedUsed || 0)),
+    weeklyUsed,
+    monthlyUsed,
+    effectiveWeeklyLimit,
     canBook: monthlyRemaining > 0 && weeklyRemaining > 0,
   };
 }

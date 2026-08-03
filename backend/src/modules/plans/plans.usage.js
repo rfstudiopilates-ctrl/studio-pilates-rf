@@ -223,11 +223,13 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     weekResetAt: weekStart,
     monthResetAt: planStart,
     catchUpSlots: availability.catchUpSlots,
+    expectedUsed: availability.expectedUsed,
     availability: getPlanAvailability({
       ...clientPlan,
       weeklyClassesUsed: weeklyUsed,
       monthlyClassesUsed: monthlyUsed,
       catchUpSlots: availability.catchUpSlots,
+      expectedUsed: availability.expectedUsed,
       status: 'active',
     }),
   };
