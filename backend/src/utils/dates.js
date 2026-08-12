@@ -114,38 +114,43 @@ export function toDateString(value) {
       return null;
     }
 
-    // Usar componentes locales: MySQL DATE suele llegar como Date a medianoche local.
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
+    // El pool MySQL usa timezone '+00:00': un DATE llega como medianoche UTC.
+    // Hay que leer componentes UTC; getFullYear/getDate() locales atrasan 1 día en AR.
+    const year = value.getUTCFullYear();
+    const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(value.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
   const stringValue = String(value).trim();
 
+  // Ya viene como YYYY-MM-DD o ISO (…T…)
   if (/^\d{4}-\d{2}-\d{2}/.test(stringValue)) {
-    return stringValue.slice(0, 10);
-  }
-
-  if (stringValue.includes('T')) {
     return stringValue.slice(0, 10);
   }
 
   const parsed = new Date(stringValue);
   if (!Number.isNaN(parsed.getTime())) {
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getDate()).padStart(2, '0');
+    const year = parsed.getUTCFullYear();
+    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
   return null;
 }
 
+/** Suma días a una fecha calendario YYYY-MM-DD sin desfases por zona horaria. */
 export function addDaysToDate(dateString, days) {
-  const date = new Date(`${dateString}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const normalized = toDateString(dateString);
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const [year, month, day] = normalized.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  utc.setUTCDate(utc.getUTCDate() + Number(days || 0));
+  return utc.toISOString().slice(0, 10);
 }
 
 /**
@@ -234,28 +239,38 @@ export function getExpectedPlanUsageByDate(clientPlan, asOfDate) {
 }
 
 export function getWeekStartDate(dateString = getTodayInArgentina()) {
-  const date = new Date(`${dateString}T12:00:00`);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return date.toISOString().slice(0, 10);
+  const normalized = toDateString(dateString) || getTodayInArgentina();
+  const [year, month, day] = normalized.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  const jsDay = utc.getUTCDay(); // 0=domingo
+  const diff = jsDay === 0 ? -6 : 1 - jsDay;
+  utc.setUTCDate(utc.getUTCDate() + diff);
+  return utc.toISOString().slice(0, 10);
 }
 
 export function getMonthStartDate(dateString = getTodayInArgentina()) {
-  const [year, month] = dateString.split('-');
+  const [year, month] = (toDateString(dateString) || dateString).split('-');
   return `${year}-${month}-01`;
 }
 
 export function getMonthEndDate(dateString = getTodayInArgentina()) {
-  const date = new Date(`${dateString}T12:00:00`);
-  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  const normalized = toDateString(dateString) || dateString;
+  const [year, month] = normalized.split('-').map(Number);
+  // Día 0 del mes siguiente = último día del mes actual (UTC).
+  const lastDay = new Date(Date.UTC(year, month, 0));
   return lastDay.toISOString().slice(0, 10);
 }
 
 export function getIsoDayOfWeek(dateString) {
-  const date = new Date(`${dateString}T12:00:00`);
-  const day = date.getDay();
-  return day === 0 ? 7 : day;
+  const normalized = toDateString(dateString);
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return null;
+  }
+
+  const [year, month, day] = normalized.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  const jsDay = utc.getUTCDay();
+  return jsDay === 0 ? 7 : jsDay;
 }
 
 export function addMinutesToTime(timeString, minutes) {
@@ -318,8 +333,9 @@ export function canCancelClass(classDate, startTime, cancellationHours) {
 
 export function getRecoveryExpiryDate(recoveryExpiresEndOfMonth, fromDate = getTodayInArgentina()) {
   if (recoveryExpiresEndOfMonth) {
-    const date = new Date(`${fromDate}T12:00:00`);
-    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    const normalized = toDateString(fromDate) || fromDate;
+    const [year, month] = normalized.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0));
     return lastDay.toISOString().slice(0, 10);
   }
 
