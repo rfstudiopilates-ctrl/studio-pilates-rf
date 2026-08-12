@@ -2,6 +2,7 @@ import { pool } from '../../config/database.js';
 import { createAppError } from '../../utils/AppError.js';
 import {
   addDaysToDate,
+  FIXED_SCHEDULE_GRACE_DAYS,
   getFixedScheduleGraceInfo,
   getMonthStartDate,
   getPlanAvailability,
@@ -204,7 +205,7 @@ export async function renewClientPlan(clientId, payload, adminId) {
 
   if (!previousPlan) {
     throw createAppError(
-      'No hay un plan activo ni uno vencido dentro de los 3 días de gracia para renovar.',
+      `No hay un plan activo ni uno vencido dentro de los ${FIXED_SCHEDULE_GRACE_DAYS} días de gracia para renovar.`,
       400
     );
   }
@@ -217,7 +218,7 @@ export async function renewClientPlan(clientId, payload, adminId) {
     const grace = getFixedScheduleGraceInfo(previousPlan.endDate);
     if (!grace.inGrace) {
       throw createAppError(
-        'La gracia de 3 días ya terminó. Asigná un plan nuevo e indicá los horarios fijos otra vez.',
+        `La gracia de ${FIXED_SCHEDULE_GRACE_DAYS} días ya terminó. Asigná un plan nuevo e indicá los horarios fijos otra vez.`,
         400
       );
     }
@@ -327,6 +328,11 @@ export async function getClientPlans(clientId, query) {
     ? syncedActivePlan
     : await plansRepository.findRenewableClientPlan(clientId);
 
+  let syncedGracePlan = null;
+  if (!syncedActivePlan && renewablePlan?.status === 'expired') {
+    syncedGracePlan = await syncClientPlanCounters(renewablePlan);
+  }
+
   let renewal = null;
   if (renewablePlan) {
     const end = toDateString(renewablePlan.endDate);
@@ -334,6 +340,7 @@ export async function getClientPlans(clientId, query) {
     const grace = getFixedScheduleGraceInfo(end, today);
     const isActive = renewablePlan.status === 'active';
     const inGrace = !isActive && grace.inGrace;
+    const gracePlan = syncedGracePlan || renewablePlan;
 
     if (isActive || inGrace) {
       renewal = {
@@ -349,7 +356,15 @@ export async function getClientPlans(clientId, query) {
         monthlyClassesLimit: renewablePlan.monthlyClassesLimit,
         defaultRenewStartDate: getDefaultRenewStartDate(end, today),
         graceDaysRemaining: isActive ? null : grace.graceDaysRemaining,
+        graceDaysTotal: FIXED_SCHEDULE_GRACE_DAYS,
+        graceEndsOn: grace.graceEndsOn,
         inGrace,
+        monthlyClassesUsed: inGrace
+          ? Number(gracePlan.monthlyClassesUsed || 0)
+          : null,
+        availability: inGrace
+          ? gracePlan.availability || getPlanAvailability(gracePlan)
+          : null,
       };
     }
   }
@@ -373,15 +388,35 @@ export async function getActivePlanForClientRole(clientId) {
 
   const activePlan = await plansRepository.findActiveClientPlan(clientId);
 
-  if (!activePlan) {
+  if (activePlan) {
+    const syncedPlan = await syncClientPlanCounters(activePlan);
+    return {
+      ...syncedPlan,
+      availability: getPlanAvailability(syncedPlan),
+      inGrace: false,
+      graceDaysRemaining: null,
+    };
+  }
+
+  const gracePlan = await plansRepository.findRenewableClientPlan(clientId);
+  if (!gracePlan || gracePlan.status !== 'expired') {
     return null;
   }
 
-  const syncedPlan = await syncClientPlanCounters(activePlan);
+  const grace = getFixedScheduleGraceInfo(gracePlan.endDate);
+  if (!grace.inGrace) {
+    return null;
+  }
+
+  const syncedPlan = await syncClientPlanCounters(gracePlan);
 
   return {
     ...syncedPlan,
     availability: getPlanAvailability(syncedPlan),
+    inGrace: true,
+    graceDaysRemaining: grace.graceDaysRemaining,
+    graceDaysTotal: FIXED_SCHEDULE_GRACE_DAYS,
+    graceEndsOn: grace.graceEndsOn,
   };
 }
 

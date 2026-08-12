@@ -6,8 +6,8 @@ export function getTodayInArgentina() {
 
 export const ARGENTINA_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
-/** Días que se retienen los horarios fijos tras vencer el plan (día 4 se liberan). */
-export const FIXED_SCHEDULE_GRACE_DAYS = 3;
+/** Días que se retienen los horarios fijos tras vencer el plan (día 8 se liberan). */
+export const FIXED_SCHEDULE_GRACE_DAYS = 7;
 
 /** Diferencia en días calendario: later − earlier (puede ser negativa). */
 export function diffDays(earlierDate, laterDate) {
@@ -24,7 +24,7 @@ export function diffDays(earlierDate, laterDate) {
 
 /**
  * Plan vencido (end_date < today) dentro de la ventana de gracia.
- * Día 1..3 tras el fin: retenido. Día 4+: liberar.
+ * Día 1..7 tras el fin: retenido (renovar + recuperar cupos). Día 8+: liberar fijos.
  */
 export function getFixedScheduleGraceInfo(endDate, today = getTodayInArgentina()) {
   const end = toDateString(endDate);
@@ -49,6 +49,38 @@ export function getFixedScheduleGraceInfo(endDate, today = getTodayInArgentina()
   const graceDaysRemaining = inGrace ? Math.max(0, FIXED_SCHEDULE_GRACE_DAYS - daysSinceExpiry + 1) : 0;
 
   return { inGrace, daysSinceExpiry, graceDaysRemaining, graceEndsOn };
+}
+
+/** true si el plan (activo o expired en gracia) puede usarse para reservar/recuperar. */
+export function isClientPlanBookable(clientPlan, today = getTodayInArgentina()) {
+  if (!clientPlan) {
+    return false;
+  }
+
+  if (clientPlan.status === 'active') {
+    return true;
+  }
+
+  if (clientPlan.status === 'expired') {
+    return getFixedScheduleGraceInfo(clientPlan.endDate, today).inGrace;
+  }
+
+  return false;
+}
+
+/** Última fecha inclusive en la que se puede tomar clase con ese abono. */
+export function getClientPlanBookableUntil(clientPlan, today = getTodayInArgentina()) {
+  const end = toDateString(clientPlan?.endDate);
+  if (!end) {
+    return '';
+  }
+
+  if (clientPlan.status === 'expired') {
+    const grace = getFixedScheduleGraceInfo(end, today);
+    return grace.inGrace ? grace.graceEndsOn : end;
+  }
+
+  return end;
 }
 
 export function isPastFixedScheduleGrace(endDate, today = getTodayInArgentina()) {
@@ -78,16 +110,36 @@ export function toDateString(value) {
   }
 
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
+    if (Number.isNaN(value.getTime())) {
+      return null;
+    }
+
+    // Usar componentes locales: MySQL DATE suele llegar como Date a medianoche local.
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
-  const stringValue = String(value);
+  const stringValue = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(stringValue)) {
+    return stringValue.slice(0, 10);
+  }
 
   if (stringValue.includes('T')) {
     return stringValue.slice(0, 10);
   }
 
-  return stringValue.slice(0, 10);
+  const parsed = new Date(stringValue);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return null;
 }
 
 export function addDaysToDate(dateString, days) {
@@ -163,6 +215,7 @@ export function countPlanWeeksElapsed(planStartDate, asOfDate) {
 /**
  * Clases que “deberían” haberse usado hasta asOfDate según el ritmo semanal.
  * Sirve para liberar catch-up si el plan empezó en el pasado o sobraron cupos.
+ * Comparar solo contra uso hasta asOfDate (no contra fijos futuros).
  */
 export function getExpectedPlanUsageByDate(clientPlan, asOfDate) {
   const weekly = Number(clientPlan?.weeklyClassesLimit ?? 0);
@@ -274,7 +327,7 @@ export function getRecoveryExpiryDate(recoveryExpiresEndOfMonth, fromDate = getT
 }
 
 export function getPlanAvailability(clientPlan) {
-  if (!clientPlan || clientPlan.status !== 'active') {
+  if (!clientPlan || !isClientPlanBookable(clientPlan)) {
     return {
       weeklyRemaining: 0,
       monthlyRemaining: 0,

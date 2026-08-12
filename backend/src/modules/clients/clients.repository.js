@@ -1,5 +1,5 @@
 import { pool } from '../../config/database.js';
-import { sqlDateInArgentina } from '../../utils/dates.js';
+import { sqlDateInArgentina, toDateString } from '../../utils/dates.js';
 
 function mapClientRow(row) {
   if (!row) {
@@ -28,12 +28,8 @@ function mapClientRow(row) {
     isDeactivated: Boolean(row.deleted_at),
     activePlanId: row.active_plan_id ?? null,
     activePlanName: row.active_plan_name ?? null,
-    activePlanEndDate: row.active_plan_end_date
-      ? String(row.active_plan_end_date).slice(0, 10)
-      : null,
-    activePlanStartDate: row.active_plan_start_date
-      ? String(row.active_plan_start_date).slice(0, 10)
-      : null,
+    activePlanEndDate: toDateString(row.active_plan_end_date) || null,
+    activePlanStartDate: toDateString(row.active_plan_start_date) || null,
     balance,
     outstandingDebt,
   };
@@ -192,8 +188,8 @@ export async function listClients({
        c.deleted_at,
        cp.id AS active_plan_id,
        p.name AS active_plan_name,
-       cp.start_date AS active_plan_start_date,
-       cp.end_date AS active_plan_end_date,
+       DATE_FORMAT(cp.start_date, '%Y-%m-%d') AS active_plan_start_date,
+       DATE_FORMAT(cp.end_date, '%Y-%m-%d') AS active_plan_end_date,
        latest.balance_after
      FROM clients c
      LEFT JOIN client_plans cp

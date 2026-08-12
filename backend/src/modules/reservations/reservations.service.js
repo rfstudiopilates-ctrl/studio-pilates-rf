@@ -286,10 +286,13 @@ export async function createReservation({
       finalBookingType = 'recovery';
       consumesPlan = false;
     } else if (!skipPlanCheck) {
-      let activePlan = await plansRepository.findActiveClientPlanForUpdate(clientId, connection);
+      let activePlan = await plansRepository.findBookableClientPlanForUpdate(clientId, connection);
 
       if (!activePlan) {
-        throw createAppError('Necesitás un plan activo para reservar', 400);
+        throw createAppError(
+          'Necesitás un plan activo (o en gracia de renovación con cupos) para reservar',
+          400
+        );
       }
 
       activePlan = await syncClientPlanCounters(activePlan, connection);
@@ -307,7 +310,9 @@ export async function createReservation({
       // mismo día bloquearía marcar "vino"). Sí respetar el cupo total del abono.
       if (!allowPastClass && !availability.canBook) {
         throw createAppError(
-          'Ya alcanzaste el cupo de esta semana. Si te quedan clases del abono, cancelá a tiempo una reserva para recuperar cupo o esperá a la próxima semana.',
+          availability.catchUpSlots > 0
+            ? 'Ya usaste el cupo semanal y también las clases de recuperación disponibles para esta fecha.'
+            : 'Ya alcanzaste el cupo de esta semana. Si te quedan clases del abono, cancelá a tiempo una reserva para recuperar cupo o esperá a la próxima semana.',
           400
         );
       }
@@ -575,9 +580,15 @@ export async function confirmReservation(reservationId, adminId, payload = {}) {
     } else if (reservation.bookingType !== 'recovery') {
       await plansRepository.expireClientPlans();
       let activePlan = await plansRepository.findActiveClientPlan(reservation.clientId);
+      if (!activePlan) {
+        activePlan = await plansRepository.findRenewableClientPlan(reservation.clientId);
+      }
 
       if (!activePlan) {
-        throw createAppError('El cliente no tiene un plan activo', 400);
+        throw createAppError(
+          'El cliente no tiene un plan activo ni en gracia de renovación',
+          400
+        );
       }
 
       activePlan = await syncClientPlanCounters(activePlan, connection);
@@ -1007,7 +1018,7 @@ export async function releaseBookingsAfterPlanCancel({ clientId, adminId }) {
 }
 
 /**
- * Libera fijos de planes expired cuya gracia de 3 días ya terminó.
+ * Libera fijos de planes expired cuya gracia de renovación ya terminó.
  */
 export async function releaseExpiredPlansPastGrace() {
   const expiredPlans = await plansRepository.listExpiredClientPlansPastGrace();
@@ -1047,7 +1058,7 @@ export async function releaseExpiredPlansPastGrace() {
         await clientsRepository.createClientHistory({
           clientId: clientPlan.clientId,
           actionType: 'client_updated',
-          description: `Plan vencido: horarios fijos liberados tras 3 días de gracia (${clientPlan.planName})`,
+          description: `Plan vencido: horarios fijos liberados tras la gracia de renovación (${clientPlan.planName})`,
           metadata: {
             clientPlanId: clientPlan.id,
             endDate: toDateString(clientPlan.endDate),
@@ -1761,45 +1772,60 @@ export async function processRecurringReservations(options = {}) {
       : null;
     const linkedPlanEnd = linkedPlan?.endDate ? toDateString(linkedPlan.endDate) : null;
     const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
-    const planEnd = activePlan?.endDate
-      ? toDateString(activePlan.endDate)
-      : null;
-    const planStart = activePlan?.startDate
-      ? toDateString(activePlan.startDate)
-      : null;
 
-    // Retener fijos en gracia tras vencimiento; liberar solo vía releaseExpiredPlansPastGrace.
+    // Retener fijos en gracia tras vencimiento; materializar si hay cupos para recuperar.
     if (recurringEnd && recurringEnd < today) {
       const graceEnd =
         linkedPlanEnd ||
         (await plansRepository.findRenewableClientPlan(recurring.clientId))?.endDate;
       const graceInfo = graceEnd ? getFixedScheduleGraceInfo(graceEnd, today) : null;
 
-      if (graceInfo?.inGrace) {
-        skipped += 1;
+      if (!graceInfo?.inGrace) {
+        await reservationsRepository.updateRecurringReservation(recurring.id, {
+          status: 'cancelled',
+        });
         continue;
       }
-
-      await reservationsRepository.updateRecurringReservation(recurring.id, {
-        status: 'cancelled',
-      });
-      continue;
+      // En gracia: no cancelar el fijo; seguir para materializar si hay plan usable.
     }
 
-    // Sin plan activo no materializar (puede estar en gracia reteniendo el cupo).
-    if (!activePlan) {
+    const bookablePlan =
+      activePlan ||
+      (linkedPlan && linkedPlan.status === 'expired'
+        ? linkedPlan
+        : await plansRepository.findRenewableClientPlan(recurring.clientId));
+
+    const bookableGrace =
+      bookablePlan?.status === 'expired'
+        ? getFixedScheduleGraceInfo(bookablePlan.endDate, today)
+        : null;
+    const bookableInGrace = Boolean(bookableGrace?.inGrace);
+
+    // Sin plan activo ni gracia usable: no materializar (solo retener el cupo fijo).
+    if (!activePlan && !bookableInGrace) {
       skipped += 1;
       continue;
     }
 
+    const effectivePlan = activePlan || bookablePlan;
+    const inGraceMaterializing = !activePlan && bookableInGrace;
     let toDate = generationTo;
 
-    if (recurringEnd && recurringEnd < toDate) {
+    // En gracia el endDate del fijo suele ser el fin del abono (ya pasado):
+    // no lo usamos como tope; usamos el fin de la ventana de gracia.
+    if (!inGraceMaterializing && recurringEnd && recurringEnd < toDate) {
       toDate = recurringEnd;
     }
 
-    if (planEnd && planEnd < toDate) {
-      toDate = planEnd;
+    if (activePlan) {
+      const planEndActive = toDateString(activePlan.endDate);
+      if (planEndActive && planEndActive < toDate) {
+        toDate = planEndActive;
+      }
+    } else if (bookableInGrace && bookableGrace.graceEndsOn) {
+      if (bookableGrace.graceEndsOn < toDate) {
+        toDate = bookableGrace.graceEndsOn;
+      }
     }
 
     if (toDate < today) {
@@ -1809,8 +1835,11 @@ export async function processRecurringReservations(options = {}) {
 
     const recurringStart = toDateString(recurring.startDate) || today;
     let fromDate = recurringStart > today ? recurringStart : today;
-    if (planStart && planStart > fromDate) {
-      fromDate = planStart;
+    const effectivePlanStart = effectivePlan?.startDate
+      ? toDateString(effectivePlan.startDate)
+      : null;
+    if (effectivePlanStart && effectivePlanStart > fromDate) {
+      fromDate = effectivePlanStart;
     }
 
     if (fromDate > toDate) {
@@ -1889,6 +1918,10 @@ export async function processRecurringReservations(options = {}) {
       const isQuotaLimit =
         message.includes('límite de clases') ||
         message.includes('cupo del abono') ||
+        message.includes('todas las clases') ||
+        message.includes('cupo de esta semana') ||
+        message.includes('clases de recuperación') ||
+        message.includes('plan activo') ||
         message.includes('ya comenzó') ||
         message.includes('ya finalizó');
 

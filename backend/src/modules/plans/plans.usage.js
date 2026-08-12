@@ -2,10 +2,12 @@ import * as plansRepository from './plans.repository.js';
 import { pool } from '../../config/database.js';
 import {
   addDaysToDate,
+  getClientPlanBookableUntil,
   getExpectedPlanUsageByDate,
   getPlanAvailability,
   getTodayInArgentina,
   getWeekStartDate,
+  isClientPlanBookable,
   toDateString,
 } from '../../utils/dates.js';
 import {
@@ -83,16 +85,30 @@ async function countWeeklySlotsUsed(
   return occupiedDays.size;
 }
 
+/**
+ * Disponibilidad del abono.
+ *
+ * `monthlyUsed`: todas las reservas que consumen (incluye fijos futuros ya
+ * generados) → topea el cupo total del plan.
+ *
+ * `usedForCatchUp`: uso hasta el fin de la semana de `asOfDate` (incluye los
+ * fijos de esa semana, excluye semanas posteriores). Así el catch-up no se
+ * anula por fijos pregenerados de semanas futuras, y tampoco se infla a
+ * mitad de semana antes de tomar los fijos restantes.
+ */
 function buildAvailability({
   clientPlan,
   weeklyUsed,
   monthlyUsed,
+  usedForCatchUp,
   asOfDate,
 }) {
   const weeklyLimit = Number(clientPlan.weeklyClassesLimit || 0);
   const monthlyLimit = Number(clientPlan.monthlyClassesLimit || 0);
   const expectedUsed = getExpectedPlanUsageByDate(clientPlan, asOfDate);
-  const catchUpSlots = Math.max(0, expectedUsed - monthlyUsed);
+  const catchUpBase =
+    usedForCatchUp != null ? Number(usedForCatchUp) : Number(monthlyUsed);
+  const catchUpSlots = Math.max(0, expectedUsed - catchUpBase);
   const effectiveWeeklyLimit = weeklyLimit + catchUpSlots;
   const weeklyRemaining = effectiveWeeklyLimit - weeklyUsed;
   const monthlyRemaining = monthlyLimit - monthlyUsed;
@@ -109,13 +125,41 @@ function buildAvailability({
   };
 }
 
+function clampDateToPlanRange(date, planStart, planEnd) {
+  const normalized = toDateString(date);
+  if (!normalized || !planStart) {
+    return normalized || '';
+  }
+
+  if (normalized < planStart) {
+    return planStart;
+  }
+
+  if (planEnd && normalized > planEnd) {
+    return planEnd;
+  }
+
+  return normalized;
+}
+
+/** Fin de la semana (domingo) de la fecha, limitado al abono. */
+function getCatchUpUsageUntilDate(asOfDate, planStart, planEnd) {
+  const normalized = toDateString(asOfDate);
+  if (!normalized) {
+    return planStart || '';
+  }
+
+  const weekEnd = addDaysToDate(getWeekStartDate(normalized), 6);
+  return clampDateToPlanRange(weekEnd, planStart, planEnd);
+}
+
 /**
  * Cupo semanal: ritmo normal (ej. 2/semana) + catch-up de clases no usadas
  * de semanas anteriores / inicio en el pasado.
  * Cupo total: vigencia completa del abono (startDate → endDate).
  */
 export async function getAvailabilityForClassDate(clientPlan, classDate, connection = null) {
-  if (!clientPlan || clientPlan.status !== 'active') {
+  if (!clientPlan || !isClientPlanBookable(clientPlan)) {
     return {
       weeklyUsed: 0,
       monthlyUsed: 0,
@@ -131,12 +175,13 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
   const db = resolveConnection(connection);
   const normalizedClassDate = toDateString(classDate);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
+  const bookableUntil = getClientPlanBookableUntil(clientPlan) || planEnd;
 
   if (
     !normalizedClassDate ||
     !planStart ||
     normalizedClassDate < planStart ||
-    (planEnd && normalizedClassDate > planEnd)
+    (bookableUntil && normalizedClassDate > bookableUntil)
   ) {
     return {
       weeklyUsed: 0,
@@ -152,8 +197,12 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
 
   const weekStart = getWeekStartDate(normalizedClassDate);
   const weekEnd = addDaysToDate(weekStart, 6);
+  // Para cupo total seguimos midiendo el abono original; para catch-up, hasta
+  // el fin de la semana de la clase (puede caer en la ventana de gracia).
+  const usageRangeEnd = bookableUntil && bookableUntil > planEnd ? bookableUntil : planEnd;
+  const catchUpUntil = getCatchUpUsageUntilDate(normalizedClassDate, planStart, usageRangeEnd);
 
-  const [weeklyUsed, reservationUsed, manualUsed] = await Promise.all([
+  const [weeklyUsed, reservationUsed, usedThroughCatchUpWindow, manualUsed] = await Promise.all([
     countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db, {
       excludeDate: normalizedClassDate,
     }),
@@ -161,7 +210,14 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
       clientPlan.clientId,
       clientPlan.id,
       planStart,
-      planEnd,
+      usageRangeEnd,
+      db
+    ),
+    countConsumingReservationsInRange(
+      clientPlan.clientId,
+      clientPlan.id,
+      planStart,
+      catchUpUntil,
       db
     ),
     plansRepository.sumUsageAdjustments(clientPlan.id, db),
@@ -171,6 +227,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
     clientPlan,
     weeklyUsed,
     monthlyUsed: reservationUsed + manualUsed,
+    usedForCatchUp: usedThroughCatchUpWindow + manualUsed,
     asOfDate: normalizedClassDate,
   });
 }
@@ -187,14 +244,25 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
   const weekStart = getWeekStartDate(today);
   const weekEnd = addDaysToDate(weekStart, 6);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
+  const bookableUntil = getClientPlanBookableUntil(clientPlan, today) || planEnd;
+  const usageRangeEnd =
+    bookableUntil && planEnd && bookableUntil > planEnd ? bookableUntil : planEnd;
+  const catchUpUntil = getCatchUpUsageUntilDate(today, planStart, usageRangeEnd);
 
-  const [weeklyUsed, reservationUsed, manualUsed] = await Promise.all([
+  const [weeklyUsed, reservationUsed, usedThroughCatchUpWindow, manualUsed] = await Promise.all([
     countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db),
     countConsumingReservationsInRange(
       clientPlan.clientId,
       clientPlan.id,
       planStart,
-      planEnd,
+      usageRangeEnd,
+      db
+    ),
+    countConsumingReservationsInRange(
+      clientPlan.clientId,
+      clientPlan.id,
+      planStart,
+      catchUpUntil,
       db
     ),
     plansRepository.sumUsageAdjustments(clientPlanId, db),
@@ -217,6 +285,7 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     clientPlan,
     weeklyUsed,
     monthlyUsed,
+    usedForCatchUp: usedThroughCatchUpWindow + manualUsed,
     asOfDate: today,
   });
 

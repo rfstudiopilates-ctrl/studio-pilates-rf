@@ -1,3 +1,5 @@
+import { FIXED_SCHEDULE_GRACE_DAYS } from '../../utils/dates.js';
+
 export const RESERVATION_STATUSES = ['pending', 'confirmed', 'cancelled', 'completed', 'no_show'];
 
 export const RESERVATION_STATUS_LABELS = {
@@ -31,7 +33,7 @@ export const CANCELLED_RECURRING_CANCELLATION_REASON = 'Horario fijo cancelado';
 export const PLAN_CANCELLED_REASON = 'Plan cancelado';
 
 export const PLAN_EXPIRED_GRACE_RELEASE_REASON =
-  'Plan vencido: horarios fijos liberados tras 3 días de gracia';
+  `Plan vencido: horarios fijos liberados tras ${FIXED_SCHEDULE_GRACE_DAYS} días de gracia`;
 
 export const CLIENT_DEACTIVATED_REASON = 'Cliente desactivado';
 

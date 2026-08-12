@@ -190,6 +190,34 @@ export async function findActiveClientPlanForUpdate(clientId, connection) {
   return mapClientPlanRow(rows[0]);
 }
 
+/**
+ * Plan usable para reservar: activo, o expired todavía en gracia (recuperar cupos).
+ */
+export async function findBookableClientPlanForUpdate(clientId, connection) {
+  const active = await findActiveClientPlanForUpdate(clientId, connection);
+  if (active) {
+    return active;
+  }
+
+  const today = getTodayInArgentina();
+  const graceFloor = addDaysToDate(today, -FIXED_SCHEDULE_GRACE_DAYS);
+  const [rows] = await connection.query(
+    `SELECT cp.*, p.name AS plan_name
+     FROM client_plans cp
+     INNER JOIN plans p ON p.id = cp.plan_id
+     WHERE cp.client_id = ?
+       AND cp.status = 'expired'
+       AND cp.end_date >= ?
+       AND cp.end_date < ?
+     ORDER BY cp.end_date DESC, cp.id DESC
+     LIMIT 1
+     FOR UPDATE`,
+    [clientId, graceFloor, today]
+  );
+
+  return mapClientPlanRow(rows[0]);
+}
+
 export async function findClientPlanByIdForUpdate(id, connection) {
   const [rows] = await connection.query(
     `SELECT cp.*, p.name AS plan_name
@@ -395,7 +423,7 @@ export async function findRenewableClientPlan(clientId, connection = pool) {
   return mapClientPlanRow(rows[0]);
 }
 
-/** Planes expired cuya gracia de fijos ya terminó (día 4+). */
+/** Planes expired cuya gracia de fijos ya terminó (día 8+). */
 export async function listExpiredClientPlansPastGrace(connection = pool) {
   const db = connection || pool;
   const today = getTodayInArgentina();
