@@ -28,6 +28,12 @@ function mapClientRow(row) {
     isDeactivated: Boolean(row.deleted_at),
     activePlanId: row.active_plan_id ?? null,
     activePlanName: row.active_plan_name ?? null,
+    activePlanEndDate: row.active_plan_end_date
+      ? String(row.active_plan_end_date).slice(0, 10)
+      : null,
+    activePlanStartDate: row.active_plan_start_date
+      ? String(row.active_plan_start_date).slice(0, 10)
+      : null,
     balance,
     outstandingDebt,
   };
@@ -186,6 +192,8 @@ export async function listClients({
        c.deleted_at,
        cp.id AS active_plan_id,
        p.name AS active_plan_name,
+       cp.start_date AS active_plan_start_date,
+       cp.end_date AS active_plan_end_date,
        latest.balance_after
      FROM clients c
      LEFT JOIN client_plans cp

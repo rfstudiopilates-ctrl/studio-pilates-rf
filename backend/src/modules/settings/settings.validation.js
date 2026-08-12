@@ -7,6 +7,7 @@ const hexColorSchema = z
 const whatsappMessagesSchema = z.object({
   reminder: z.string().min(1).max(1000),
   debtNotice: z.string().min(1).max(1000),
+  planExpiryNotice: z.string().min(1).max(1000),
   paymentReceipt: z.string().min(1).max(1000),
   guestDropInOffer: z.string().min(1).max(1000),
   credentialsCreated: z.string().min(1).max(1000),
