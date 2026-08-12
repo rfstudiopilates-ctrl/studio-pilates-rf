@@ -47,12 +47,15 @@ export default function WhatsAppPlanExpiryButton({
     }
   }
 
+  const daysLeft = Number(info.daysRemaining);
   const label =
-    info.daysRemaining === 0
+    daysLeft === 0
       ? 'Vence hoy · WP'
-      : info.daysRemaining === 1
+      : daysLeft === 1
         ? 'Vence mañana · WP'
-        : `Vence en ${info.daysRemaining}d · WP`;
+        : Number.isFinite(daysLeft)
+          ? `Vence en ${daysLeft}d · WP`
+          : 'Recordar vencimiento · WP';
 
   const title = hasPhone
     ? `Recordar por WhatsApp: el plan vence ${info.daysText}`

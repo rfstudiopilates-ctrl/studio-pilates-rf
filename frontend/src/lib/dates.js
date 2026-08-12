@@ -18,8 +18,16 @@ export function diffDays(earlierDate, laterDate) {
     return null;
   }
 
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(earlier) || !/^\d{4}-\d{2}-\d{2}$/.test(later)) {
+    return null;
+  }
+
   const a = new Date(`${earlier}T12:00:00`);
   const b = new Date(`${later}T12:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) {
+    return null;
+  }
+
   return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
 }
 
@@ -81,16 +89,36 @@ export function normalizeDateInput(value) {
   }
 
   if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
+    if (Number.isNaN(value.getTime())) {
+      return '';
+    }
+
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
-  const stringValue = String(value);
+  const stringValue = String(value).trim();
 
-  if (stringValue.includes('T')) {
+  if (/^\d{4}-\d{2}-\d{2}/.test(stringValue)) {
     return stringValue.slice(0, 10);
   }
 
-  return stringValue;
+  if (stringValue.includes('T')) {
+    const isoDay = stringValue.slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(isoDay) ? isoDay : '';
+  }
+
+  const parsed = new Date(stringValue);
+  if (!Number.isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  return '';
 }
 
 export function formatDateDisplay(dateInput) {

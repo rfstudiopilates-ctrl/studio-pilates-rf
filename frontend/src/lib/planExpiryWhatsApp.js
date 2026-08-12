@@ -34,9 +34,13 @@ export function formatPlanExpiryDaysText(daysRemaining) {
 
 export function getPlanExpiryInfo(endDate, today = getTodayInArgentina()) {
   const normalizedEnd = normalizeDateInput(endDate);
+  if (!normalizedEnd || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedEnd)) {
+    return null;
+  }
+
   const daysRemaining = getDaysUntilDate(normalizedEnd, today);
 
-  if (daysRemaining == null) {
+  if (daysRemaining == null || !Number.isFinite(daysRemaining)) {
     return null;
   }
 

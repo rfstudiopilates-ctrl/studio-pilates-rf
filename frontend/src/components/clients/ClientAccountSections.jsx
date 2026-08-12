@@ -264,7 +264,9 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
             {activePlan
               ? 'Podés renovar el mismo abono manteniendo los fijos, o cancelarlo para asignar otro.'
               : inGraceWithoutActive
-                ? 'El plan venció y los horarios fijos se retienen 3 días. Renová o asigná otro plan.'
+                ? `El plan venció y los horarios fijos se retienen ${renewal.graceDaysRemaining} día${
+                    renewal.graceDaysRemaining === 1 ? '' : 's'
+                  } más (gracia de ${renewal.graceDaysTotal || 7} días). Si le quedan clases, puede recuperarlas. Renová o asigná otro plan.`
                 : 'Elegí un plan para habilitar reservas con cupo semanal y mensual.'}
           </p>
         </div>
@@ -384,8 +386,23 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
                   <p className="mt-1 text-sm text-text-muted">
                     Finalizó el {formatDateDisplay(renewal.endDate)}. Los horarios fijos se
                     retienen {renewal.graceDaysRemaining} día
-                    {renewal.graceDaysRemaining === 1 ? '' : 's'} más. Después se liberan solos.
+                    {renewal.graceDaysRemaining === 1 ? '' : 's'} más
+                    {renewal.graceEndsOn
+                      ? ` (hasta el ${formatDateDisplay(renewal.graceEndsOn)})`
+                      : ''}
+                    . Si aún tiene clases del abono, puede recuperarlas en ese período. Después se
+                    liberan solos.
                   </p>
+                  {Number(renewal.availability?.monthlyRemaining || 0) > 0 ? (
+                    <p className="mt-2 text-sm font-medium text-amber-900">
+                      Cupos pendientes: {renewal.availability.monthlyRemaining} clase
+                      {renewal.availability.monthlyRemaining === 1 ? '' : 's'} del abono
+                      {Number(renewal.availability?.catchUpSlots || 0) > 0
+                        ? ` · ${renewal.availability.catchUpSlots} de recuperación`
+                        : ''}
+                      .
+                    </p>
+                  ) : null}
                 </div>
                 <Button onClick={() => setRenewModalOpen(true)} className="shrink-0">
                   Renovar mismo plan
