@@ -3,6 +3,8 @@ export const DEFAULT_WHATSAPP_MESSAGES = {
     'Hola {nombre}, te recordamos tu clase del {fecha} a las {hora} en {estudio}.',
   debtNotice:
     'Hola {nombre}, te recordamos que tenés una deuda pendiente de {monto} en {estudio}. Por favor regularizá el pago cuando puedas.',
+  planExpiryNotice:
+    'Hola {nombre}, te recordamos que tu plan {plan} en {estudio} vence {dias_texto} ({fecha}). ¡Renová a tiempo para no perder tu lugar!',
   paymentReceipt:
     'Hola {nombre}, registramos tu pago de {monto} en {estudio}. Comprobante {comprobante} ({fecha}).',
   guestDropInOffer:
@@ -26,6 +28,12 @@ export const WHATSAPP_MESSAGE_FIELDS = [
     label: 'Aviso de deuda',
     placeholders: '{nombre}, {monto}, {estudio}',
     usedIn: 'Cliente → Finanzas · botón Recordar deuda',
+  },
+  {
+    key: 'planExpiryNotice',
+    label: 'Aviso de vencimiento de plan',
+    placeholders: '{nombre}, {plan}, {estudio}, {fecha}, {dias}, {dias_texto}',
+    usedIn: 'Listado / ficha de cliente · botón Recordar vencimiento',
   },
   {
     key: 'paymentReceipt',

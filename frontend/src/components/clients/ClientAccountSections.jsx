@@ -4,6 +4,7 @@ import ConsumeCatchUpModal from './ConsumeCatchUpModal';
 import PlanPaymentModal from './PlanPaymentModal';
 import RegisterMovementModal from './RegisterMovementModal';
 import RenewPlanModal from './RenewPlanModal';
+import WhatsAppPlanExpiryButton from '../notifications/WhatsAppPlanExpiryButton';
 import { Alert } from '../ui/Alert';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
@@ -308,7 +309,13 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
                 </div>
               </div>
 
-              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <WhatsAppPlanExpiryButton
+                  clientName={client?.fullName}
+                  clientPhone={client?.phone}
+                  planName={activePlan.planName}
+                  endDate={activePlan.endDate}
+                />
                 {canRenew ? (
                   <Button variant="secondary" onClick={() => setRenewModalOpen(true)}>
                     Renovar plan

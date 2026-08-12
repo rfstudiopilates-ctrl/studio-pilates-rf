@@ -10,6 +10,29 @@ export function addDaysToDate(dateString, days) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Diferencia en días calendario: later − earlier (puede ser negativa). */
+export function diffDays(earlierDate, laterDate) {
+  const earlier = normalizeDateInput(earlierDate);
+  const later = normalizeDateInput(laterDate);
+  if (!earlier || !later) {
+    return null;
+  }
+
+  const a = new Date(`${earlier}T12:00:00`);
+  const b = new Date(`${later}T12:00:00`);
+  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Días que faltan hasta endDate (0 = hoy). null si no hay fecha. */
+export function getDaysUntilDate(endDate, today = getTodayInArgentina()) {
+  const end = normalizeDateInput(endDate);
+  if (!end) {
+    return null;
+  }
+
+  return diffDays(today, end);
+}
+
 /**
  * Semanas de vigencia de un abono a partir del cupo de clases.
  * Ej: 8 clases / 2 por semana = 4 semanas.
