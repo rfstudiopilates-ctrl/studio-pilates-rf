@@ -361,9 +361,37 @@ export default function ClientReservationsPage() {
   }
 
   async function handleCancel(reservation) {
+    const isPendingDropIn =
+      reservation.status === 'pending' && reservation.bookingType === 'drop_in';
+    const cancellationsRemaining = Number(
+      activePlan?.availability?.cancellationsRemaining ??
+        (activePlan ? 5 - Number(activePlan?.availability?.cancellationsUsed || 0) : null)
+    );
+    const hitsQuotaLimit =
+      !isPendingDropIn &&
+      reservation.consumesPlan !== false &&
+      activePlan &&
+      Number.isFinite(cancellationsRemaining) &&
+      cancellationsRemaining <= 0;
+
+    if (hitsQuotaLimit) {
+      setFeedback({
+        type: 'error',
+        message:
+          'Ya usaste las 5 cancelaciones con devolución de cupo de este abono. Podés pedir un cambio de horario o contactar al estudio.',
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    const remainingHint =
+      !isPendingDropIn && activePlan && Number.isFinite(cancellationsRemaining)
+        ? `\n\nCancelaciones con cupo en este abono: ${activePlan.availability?.cancellationsUsed ?? 0}/${activePlan.availability?.cancellationsLimit ?? 5} (te quedan ${Math.max(0, cancellationsRemaining)}).`
+        : '';
+
     if (
       !window.confirm(
-        `¿Cancelar la clase del ${formatDateDisplay(reservation.classDate)} a las ${reservation.startTime}?`
+        `¿Cancelar la clase del ${formatDateDisplay(reservation.classDate)} a las ${reservation.startTime}?${remainingHint}`
       )
     ) {
       return;
@@ -450,12 +478,18 @@ export default function ClientReservationsPage() {
     setPendingSlot(null);
   }
 
+  const cancellationsRemaining = Number(activePlan?.availability?.cancellationsRemaining);
+  const canCancelWithQuotaReturn =
+    !activePlan ||
+    !Number.isFinite(cancellationsRemaining) ||
+    cancellationsRemaining > 0;
+
   const planHint = activePlan
     ? `${activePlan.availability?.weeklyRemaining ?? 0} libres esta semana · ${activePlan.availability?.monthlyRemaining ?? 0} en tu abono${
         Number(activePlan.availability?.catchUpSlots || 0) > 0
           ? ` · ${activePlan.availability.catchUpSlots} de recuperación`
           : ''
-      }`
+      } · cancelaciones ${activePlan.availability?.cancellationsUsed ?? 0}/${activePlan.availability?.cancellationsLimit ?? 5}`
     : canRequestWithoutPlan
       ? 'Sin plan activo: pedí un turno y el estudio lo confirma con la seña.'
       : 'Necesitás un plan activo o un crédito de recuperación.';
@@ -522,6 +556,13 @@ export default function ClientReservationsPage() {
             </div>
 
             <div className="mt-4 space-y-3">
+              {!canCancelWithQuotaReturn && activePlan ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 text-xs text-amber-950">
+                  Ya usaste las {activePlan.availability?.cancellationsLimit ?? 5} cancelaciones con
+                  devolución de cupo de este abono. Todavía podés pedir un{' '}
+                  <span className="font-semibold">cambio de horario</span> o contactar al estudio.
+                </div>
+              ) : null}
               {myReservations.map((reservation) => (
                 <article
                   key={reservation.id}
@@ -564,7 +605,15 @@ export default function ClientReservationsPage() {
                         className="w-full text-danger"
                         onClick={() => handleCancel(reservation)}
                         isLoading={cancellingReservationId === reservation.id}
-                        disabled={Boolean(cancellingReservationId)}
+                        disabled={
+                          Boolean(cancellingReservationId) ||
+                          (reservation.consumesPlan !== false && !canCancelWithQuotaReturn)
+                        }
+                        title={
+                          reservation.consumesPlan !== false && !canCancelWithQuotaReturn
+                            ? 'Alcanzaste el máximo de cancelaciones con cupo de este abono'
+                            : undefined
+                        }
                       >
                         Cancelar
                       </Button>

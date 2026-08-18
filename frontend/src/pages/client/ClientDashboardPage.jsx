@@ -176,20 +176,13 @@ function CompactPlanCard({ activePlan, isLoading, isError }) {
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-text">{activePlan.planName}</h2>
             <span
-              className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                activePlan.inGrace
-                  ? 'border-amber-200 bg-amber-50 text-amber-900'
-                  : getPlanBadgeClass(activePlan.status)
-              }`}
+              className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${getPlanBadgeClass(activePlan.status)}`}
             >
-              {activePlan.inGrace
-                ? `Gracia · ${activePlan.graceDaysRemaining}d`
-                : CLIENT_PLAN_STATUS_LABELS[activePlan.status] || activePlan.status}
+              {CLIENT_PLAN_STATUS_LABELS[activePlan.status] || activePlan.status}
             </span>
           </div>
           <p className="mt-0.5 truncate text-[11px] text-text-muted">
             {formatDateDisplay(activePlan.startDate)} → {formatDateDisplay(activePlan.endDate)}
-            {activePlan.inGrace ? ' · Renová; si te quedan clases podés recuperarlas' : ''}
           </p>
         </div>
       </div>
@@ -213,6 +206,20 @@ function CompactPlanCard({ activePlan, isLoading, isError }) {
           remaining={activePlan.availability?.monthlyRemaining}
         />
       </div>
+      {Number(activePlan.availability?.cancellationsLimit || 0) > 0 ? (
+        <div className="border-t border-border px-3.5 py-2.5 sm:px-4">
+          <p className="text-[11px] text-text-muted">
+            Cancelaciones con cupo:{' '}
+            <span className="font-semibold text-text">
+              {activePlan.availability?.cancellationsUsed ?? 0}/
+              {activePlan.availability?.cancellationsLimit ?? 5}
+            </span>
+            {Number(activePlan.availability?.cancellationsRemaining || 0) <= 0
+              ? ' · llegaste al máximo de este abono'
+              : ` · te quedan ${activePlan.availability.cancellationsRemaining}`}
+          </p>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -266,7 +266,7 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
               : inGraceWithoutActive
                 ? `El plan venció y los horarios fijos se retienen ${renewal.graceDaysRemaining} día${
                     renewal.graceDaysRemaining === 1 ? '' : 's'
-                  } más (gracia de ${renewal.graceDaysTotal || 7} días). Si le quedan clases, puede recuperarlas. Renová o asigná otro plan.`
+                  } más (gracia de ${renewal.graceDaysTotal || 7} días) para renovar. Renová o asigná otro plan.`
                 : 'Elegí un plan para habilitar reservas con cupo semanal y mensual.'}
           </p>
         </div>
@@ -348,6 +348,18 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
               />
             </div>
 
+            <div className="mt-3 rounded-xl border border-border bg-surface-muted/40 px-4 py-3 text-sm text-text-muted">
+              Cancelaciones con devolución de cupo:{' '}
+              <span className="font-semibold text-text">
+                {activePlan.availability?.cancellationsUsed ?? 0}/
+                {activePlan.availability?.cancellationsLimit ?? 5}
+              </span>
+              {Number(activePlan.availability?.cancellationsRemaining ?? 5) <= 0
+                ? ' · sin cancelaciones disponibles en este abono'
+                : ` · quedan ${activePlan.availability?.cancellationsRemaining ?? 5}`}
+              .
+            </div>
+
             {Number(activePlan.availability?.catchUpSlots || activePlan.catchUpSlots || 0) > 0 ? (
               <div className="space-y-3">
                 <Alert variant="info">
@@ -390,19 +402,8 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
                     {renewal.graceEndsOn
                       ? ` (hasta el ${formatDateDisplay(renewal.graceEndsOn)})`
                       : ''}
-                    . Si aún tiene clases del abono, puede recuperarlas en ese período. Después se
-                    liberan solos.
+                    . Después se liberan solos si no renovás.
                   </p>
-                  {Number(renewal.availability?.monthlyRemaining || 0) > 0 ? (
-                    <p className="mt-2 text-sm font-medium text-amber-900">
-                      Cupos pendientes: {renewal.availability.monthlyRemaining} clase
-                      {renewal.availability.monthlyRemaining === 1 ? '' : 's'} del abono
-                      {Number(renewal.availability?.catchUpSlots || 0) > 0
-                        ? ` · ${renewal.availability.catchUpSlots} de recuperación`
-                        : ''}
-                      .
-                    </p>
-                  ) : null}
                 </div>
                 <Button onClick={() => setRenewModalOpen(true)} className="shrink-0">
                   Renovar mismo plan

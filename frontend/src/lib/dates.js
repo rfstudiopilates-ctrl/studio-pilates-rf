@@ -5,9 +5,15 @@ export function getTodayInArgentina() {
 }
 
 export function addDaysToDate(dateString, days) {
-  const date = new Date(`${dateString}T12:00:00`);
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  const normalized = normalizeDateInput(dateString);
+  if (!normalized || !/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  const [year, month, day] = normalized.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  utc.setUTCDate(utc.getUTCDate() + Number(days || 0));
+  return utc.toISOString().slice(0, 10);
 }
 
 /** Diferencia en días calendario: later − earlier (puede ser negativa). */
@@ -76,11 +82,13 @@ export function getPlanEndDate(startDate, plan) {
 }
 
 export function getWeekStartDate(dateString = getTodayInArgentina()) {
-  const date = new Date(`${dateString}T12:00:00`);
-  const day = date.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + diff);
-  return date.toISOString().slice(0, 10);
+  const normalized = normalizeDateInput(dateString) || getTodayInArgentina();
+  const [year, month, day] = normalized.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  const jsDay = utc.getUTCDay();
+  const diff = jsDay === 0 ? -6 : 1 - jsDay;
+  utc.setUTCDate(utc.getUTCDate() + diff);
+  return utc.toISOString().slice(0, 10);
 }
 
 export function normalizeDateInput(value) {
@@ -93,10 +101,8 @@ export function normalizeDateInput(value) {
       return '';
     }
 
-    const year = value.getFullYear();
-    const month = String(value.getMonth() + 1).padStart(2, '0');
-    const day = String(value.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // Preferir YYYY-MM-DD del ISO UTC (alineado al backend DATE en +00:00).
+    return value.toISOString().slice(0, 10);
   }
 
   const stringValue = String(value).trim();
@@ -105,17 +111,9 @@ export function normalizeDateInput(value) {
     return stringValue.slice(0, 10);
   }
 
-  if (stringValue.includes('T')) {
-    const isoDay = stringValue.slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(isoDay) ? isoDay : '';
-  }
-
   const parsed = new Date(stringValue);
   if (!Number.isNaN(parsed.getTime())) {
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return parsed.toISOString().slice(0, 10);
   }
 
   return '';
