@@ -382,8 +382,8 @@ export default function AssignPlanModal({
               <Alert variant="info" className="py-2 text-xs">
                 Plan vencido en gracia ({renewal.graceDaysRemaining} día
                 {renewal.graceDaysRemaining === 1 ? '' : 's'} de {renewal.graceDaysTotal || 7}
-                ). Si asignás otro plan acá, se liberan los horarios fijos. Para mantenerlos,
-                renovalo desde la ficha del cliente.
+                ): el abono no se puede usar, solo se retienen los fijos para renovar. Si asignás
+                otro plan acá, se liberan. Para mantenerlos, renovalo desde la ficha del cliente.
               </Alert>
             ) : null}
 

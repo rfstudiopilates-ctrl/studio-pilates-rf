@@ -264,9 +264,9 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
             {activePlan
               ? 'Podés renovar el mismo abono manteniendo los fijos, o cancelarlo para asignar otro.'
               : inGraceWithoutActive
-                ? `El plan venció y los horarios fijos se retienen ${renewal.graceDaysRemaining} día${
+                ? `El plan venció y ya no se puede usar para reservar. Los horarios fijos se retienen ${renewal.graceDaysRemaining} día${
                     renewal.graceDaysRemaining === 1 ? '' : 's'
-                  } más (gracia de ${renewal.graceDaysTotal || 7} días) para renovar. Renová o asigná otro plan.`
+                  } más (gracia de ${renewal.graceDaysTotal || 7} días) solo para que renueves sin volver a elegirlos.`
                 : 'Elegí un plan para habilitar reservas con cupo semanal y mensual.'}
           </p>
         </div>
@@ -396,13 +396,14 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
                     Plan vencido: {renewal.planName}
                   </p>
                   <p className="mt-1 text-sm text-text-muted">
-                    Finalizó el {formatDateDisplay(renewal.endDate)}. Los horarios fijos se
-                    retienen {renewal.graceDaysRemaining} día
+                    Finalizó el {formatDateDisplay(renewal.endDate)}. El abono ya no se puede usar
+                    para reservar. Los horarios fijos se retienen {renewal.graceDaysRemaining} día
                     {renewal.graceDaysRemaining === 1 ? '' : 's'} más
                     {renewal.graceEndsOn
                       ? ` (hasta el ${formatDateDisplay(renewal.graceEndsOn)})`
-                      : ''}
-                    . Después se liberan solos si no renovás.
+                      : ''}{' '}
+                    para que renueves el mismo plan sin reconfigurarlos. Si no renovás, se liberan
+                    solos al terminar la gracia.
                   </p>
                 </div>
                 <Button onClick={() => setRenewModalOpen(true)} className="shrink-0">
