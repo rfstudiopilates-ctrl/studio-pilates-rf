@@ -191,31 +191,11 @@ export async function findActiveClientPlanForUpdate(clientId, connection) {
 }
 
 /**
- * Plan usable para reservar: activo, o expired todavía en gracia (recuperar cupos).
+ * Plan activo bloqueado para reservar (FOR UPDATE).
+ * Los planes vencidos en gracia no permiten reservar: solo retienen fijos para renovar.
  */
 export async function findBookableClientPlanForUpdate(clientId, connection) {
-  const active = await findActiveClientPlanForUpdate(clientId, connection);
-  if (active) {
-    return active;
-  }
-
-  const today = getTodayInArgentina();
-  const graceFloor = addDaysToDate(today, -FIXED_SCHEDULE_GRACE_DAYS);
-  const [rows] = await connection.query(
-    `SELECT cp.*, p.name AS plan_name
-     FROM client_plans cp
-     INNER JOIN plans p ON p.id = cp.plan_id
-     WHERE cp.client_id = ?
-       AND cp.status = 'expired'
-       AND cp.end_date >= ?
-       AND cp.end_date < ?
-     ORDER BY cp.end_date DESC, cp.id DESC
-     LIMIT 1
-     FOR UPDATE`,
-    [clientId, graceFloor, today]
-  );
-
-  return mapClientPlanRow(rows[0]);
+  return findActiveClientPlanForUpdate(clientId, connection);
 }
 
 export async function findClientPlanByIdForUpdate(id, connection) {

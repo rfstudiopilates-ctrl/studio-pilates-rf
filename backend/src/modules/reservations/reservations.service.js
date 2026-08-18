@@ -39,6 +39,7 @@ import {
   CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
   SCHEDULE_CHANGE_VACATED_REASON,
   REACTIVATABLE_SYSTEM_CANCELLATION_REASONS,
+  MAX_PLAN_QUOTA_CANCELLATIONS,
 } from './reservations.constants.js';
 import {
   getFixedScheduleSlotLimit,
@@ -289,10 +290,7 @@ export async function createReservation({
       let activePlan = await plansRepository.findBookableClientPlanForUpdate(clientId, connection);
 
       if (!activePlan) {
-        throw createAppError(
-          'Necesitás un plan activo (o en gracia de renovación con cupos) para reservar',
-          400
-        );
+        throw createAppError('Necesitás un plan activo para reservar', 400);
       }
 
       activePlan = await syncClientPlanCounters(activePlan, connection);
@@ -580,15 +578,9 @@ export async function confirmReservation(reservationId, adminId, payload = {}) {
     } else if (reservation.bookingType !== 'recovery') {
       await plansRepository.expireClientPlans();
       let activePlan = await plansRepository.findActiveClientPlan(reservation.clientId);
-      if (!activePlan) {
-        activePlan = await plansRepository.findRenewableClientPlan(reservation.clientId);
-      }
 
       if (!activePlan) {
-        throw createAppError(
-          'El cliente no tiene un plan activo ni en gracia de renovación',
-          400
-        );
+        throw createAppError('El cliente no tiene un plan activo', 400);
       }
 
       activePlan = await syncClientPlanCounters(activePlan, connection);
@@ -777,6 +769,33 @@ export async function cancelReservation({
       forceReturnQuota ||
       isDropInPending ||
       canCancelClass(classItem.classDate, classItem.startTime, settings.cancellationHours);
+
+    // Límite por abono: el cliente solo puede devolver cupo N veces (recuperación).
+    // Admin / cierre de clase del estudio no entran en este tope.
+    const wouldReturnQuotaToPlan =
+      cancelledBy === 'client' &&
+      wasConfirmed &&
+      Boolean(reservation.consumesPlan) &&
+      Boolean(reservation.clientPlanId) &&
+      timelyCancel &&
+      !skipRecoveryCredit &&
+      !forceReturnQuota &&
+      !studioCancelledClass;
+
+    if (wouldReturnQuotaToPlan) {
+      const cancellationsUsed =
+        await reservationsRepository.countClientQuotaReturningCancellations(
+          reservation.clientPlanId,
+          connection
+        );
+
+      if (cancellationsUsed >= MAX_PLAN_QUOTA_CANCELLATIONS) {
+        throw createAppError(
+          `Alcanzaste el máximo de ${MAX_PLAN_QUOTA_CANCELLATIONS} cancelaciones con devolución de cupo en este abono. Si necesitás cambiar de día, pedí un cambio de horario o contactá al estudio.`,
+          400
+        );
+      }
+    }
 
     // Cancelación tardía (solo admin llega acá): la clase se pierde del cupo (no_show).
     // Cancelación a tiempo / cierre de horario del estudio: status cancelled → cupo vuelve.
@@ -1773,59 +1792,39 @@ export async function processRecurringReservations(options = {}) {
     const linkedPlanEnd = linkedPlan?.endDate ? toDateString(linkedPlan.endDate) : null;
     const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
 
-    // Retener fijos en gracia tras vencimiento; materializar si hay cupos para recuperar.
+    // Retener fijos en gracia tras vencimiento; liberar solo vía releaseExpiredPlansPastGrace.
     if (recurringEnd && recurringEnd < today) {
       const graceEnd =
         linkedPlanEnd ||
         (await plansRepository.findRenewableClientPlan(recurring.clientId))?.endDate;
       const graceInfo = graceEnd ? getFixedScheduleGraceInfo(graceEnd, today) : null;
 
-      if (!graceInfo?.inGrace) {
-        await reservationsRepository.updateRecurringReservation(recurring.id, {
-          status: 'cancelled',
-        });
+      if (graceInfo?.inGrace) {
+        skipped += 1;
         continue;
       }
-      // En gracia: no cancelar el fijo; seguir para materializar si hay plan usable.
+
+      await reservationsRepository.updateRecurringReservation(recurring.id, {
+        status: 'cancelled',
+      });
+      continue;
     }
 
-    const bookablePlan =
-      activePlan ||
-      (linkedPlan && linkedPlan.status === 'expired'
-        ? linkedPlan
-        : await plansRepository.findRenewableClientPlan(recurring.clientId));
-
-    const bookableGrace =
-      bookablePlan?.status === 'expired'
-        ? getFixedScheduleGraceInfo(bookablePlan.endDate, today)
-        : null;
-    const bookableInGrace = Boolean(bookableGrace?.inGrace);
-
-    // Sin plan activo ni gracia usable: no materializar (solo retener el cupo fijo).
-    if (!activePlan && !bookableInGrace) {
+    // Sin plan activo no materializar (puede estar en gracia reteniendo el cupo).
+    if (!activePlan) {
       skipped += 1;
       continue;
     }
 
-    const effectivePlan = activePlan || bookablePlan;
-    const inGraceMaterializing = !activePlan && bookableInGrace;
     let toDate = generationTo;
 
-    // En gracia el endDate del fijo suele ser el fin del abono (ya pasado):
-    // no lo usamos como tope; usamos el fin de la ventana de gracia.
-    if (!inGraceMaterializing && recurringEnd && recurringEnd < toDate) {
+    if (recurringEnd && recurringEnd < toDate) {
       toDate = recurringEnd;
     }
 
-    if (activePlan) {
-      const planEndActive = toDateString(activePlan.endDate);
-      if (planEndActive && planEndActive < toDate) {
-        toDate = planEndActive;
-      }
-    } else if (bookableInGrace && bookableGrace.graceEndsOn) {
-      if (bookableGrace.graceEndsOn < toDate) {
-        toDate = bookableGrace.graceEndsOn;
-      }
+    const planEnd = activePlan?.endDate ? toDateString(activePlan.endDate) : null;
+    if (planEnd && planEnd < toDate) {
+      toDate = planEnd;
     }
 
     if (toDate < today) {
@@ -1835,11 +1834,9 @@ export async function processRecurringReservations(options = {}) {
 
     const recurringStart = toDateString(recurring.startDate) || today;
     let fromDate = recurringStart > today ? recurringStart : today;
-    const effectivePlanStart = effectivePlan?.startDate
-      ? toDateString(effectivePlan.startDate)
-      : null;
-    if (effectivePlanStart && effectivePlanStart > fromDate) {
-      fromDate = effectivePlanStart;
+    const planStart = activePlan?.startDate ? toDateString(activePlan.startDate) : null;
+    if (planStart && planStart > fromDate) {
+      fromDate = planStart;
     }
 
     if (fromDate > toDate) {

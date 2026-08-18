@@ -24,7 +24,7 @@ export function diffDays(earlierDate, laterDate) {
 
 /**
  * Plan vencido (end_date < today) dentro de la ventana de gracia.
- * Día 1..7 tras el fin: retenido (renovar + recuperar cupos). Día 8+: liberar fijos.
+ * Día 1..7 tras el fin: se retienen horarios fijos para renovar. Día 8+: liberar fijos.
  */
 export function getFixedScheduleGraceInfo(endDate, today = getTodayInArgentina()) {
   const end = toDateString(endDate);
@@ -51,36 +51,14 @@ export function getFixedScheduleGraceInfo(endDate, today = getTodayInArgentina()
   return { inGrace, daysSinceExpiry, graceDaysRemaining, graceEndsOn };
 }
 
-/** true si el plan (activo o expired en gracia) puede usarse para reservar/recuperar. */
-export function isClientPlanBookable(clientPlan, today = getTodayInArgentina()) {
-  if (!clientPlan) {
-    return false;
-  }
-
-  if (clientPlan.status === 'active') {
-    return true;
-  }
-
-  if (clientPlan.status === 'expired') {
-    return getFixedScheduleGraceInfo(clientPlan.endDate, today).inGrace;
-  }
-
-  return false;
+/** true si el plan está activo y puede usarse para reservar. */
+export function isClientPlanBookable(clientPlan) {
+  return Boolean(clientPlan && clientPlan.status === 'active');
 }
 
-/** Última fecha inclusive en la que se puede tomar clase con ese abono. */
-export function getClientPlanBookableUntil(clientPlan, today = getTodayInArgentina()) {
-  const end = toDateString(clientPlan?.endDate);
-  if (!end) {
-    return '';
-  }
-
-  if (clientPlan.status === 'expired') {
-    const grace = getFixedScheduleGraceInfo(end, today);
-    return grace.inGrace ? grace.graceEndsOn : end;
-  }
-
-  return end;
+/** Última fecha inclusive en la que se puede tomar clase con ese abono (solo plan activo). */
+export function getClientPlanBookableUntil(clientPlan) {
+  return toDateString(clientPlan?.endDate) || '';
 }
 
 export function isPastFixedScheduleGrace(endDate, today = getTodayInArgentina()) {
@@ -343,6 +321,13 @@ export function getRecoveryExpiryDate(recoveryExpiresEndOfMonth, fromDate = getT
 }
 
 export function getPlanAvailability(clientPlan) {
+  const cancellationsLimit = Math.max(
+    0,
+    Number(clientPlan?.cancellationsLimit ?? 5)
+  );
+  const cancellationsUsed = Math.max(0, Number(clientPlan?.cancellationsUsed || 0));
+  const cancellationsRemaining = Math.max(0, cancellationsLimit - cancellationsUsed);
+
   if (!clientPlan || !isClientPlanBookable(clientPlan)) {
     return {
       weeklyRemaining: 0,
@@ -353,6 +338,10 @@ export function getPlanAvailability(clientPlan) {
       monthlyUsed: 0,
       effectiveWeeklyLimit: 0,
       canBook: false,
+      cancellationsUsed,
+      cancellationsLimit,
+      cancellationsRemaining: 0,
+      canCancelWithQuotaReturn: false,
     };
   }
 
@@ -374,5 +363,9 @@ export function getPlanAvailability(clientPlan) {
     monthlyUsed,
     effectiveWeeklyLimit,
     canBook: monthlyRemaining > 0 && weeklyRemaining > 0,
+    cancellationsUsed,
+    cancellationsLimit,
+    cancellationsRemaining,
+    canCancelWithQuotaReturn: cancellationsRemaining > 0,
   };
 }

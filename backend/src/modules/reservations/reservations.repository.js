@@ -230,6 +230,25 @@ export async function countConsumingReservationsInRange(
   return Number(rows[0]?.total || 0);
 }
 
+/**
+ * Cancelaciones del cliente que devolvieron cupo al abono (status cancelled + consumes_plan).
+ * No incluye no_show, ni cancelaciones del estudio/sistema.
+ */
+export async function countClientQuotaReturningCancellations(clientPlanId, connection = pool) {
+  const db = connection || pool;
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS total
+     FROM class_reservations
+     WHERE client_plan_id = ?
+       AND status = 'cancelled'
+       AND consumes_plan = 1
+       AND cancelled_by = 'client'`,
+    [clientPlanId]
+  );
+
+  return Number(rows[0]?.total || 0);
+}
+
 export async function listConsumingReservationDatesInRange(
   clientId,
   clientPlanId,

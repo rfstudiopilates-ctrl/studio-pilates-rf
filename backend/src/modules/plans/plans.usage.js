@@ -2,7 +2,6 @@ import * as plansRepository from './plans.repository.js';
 import { pool } from '../../config/database.js';
 import {
   addDaysToDate,
-  getClientPlanBookableUntil,
   getExpectedPlanUsageByDate,
   getPlanAvailability,
   getTodayInArgentina,
@@ -10,8 +9,10 @@ import {
   isClientPlanBookable,
   toDateString,
 } from '../../utils/dates.js';
+import { MAX_PLAN_QUOTA_CANCELLATIONS } from '../reservations/reservations.constants.js';
 import {
   countConsumingReservationsInRange,
+  countClientQuotaReturningCancellations,
   listActiveRecurringDaysByClient,
   listClientClassDatesInRange,
   listConsumingReservationDatesInRange,
@@ -175,13 +176,12 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
   const db = resolveConnection(connection);
   const normalizedClassDate = toDateString(classDate);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
-  const bookableUntil = getClientPlanBookableUntil(clientPlan) || planEnd;
 
   if (
     !normalizedClassDate ||
     !planStart ||
     normalizedClassDate < planStart ||
-    (bookableUntil && normalizedClassDate > bookableUntil)
+    (planEnd && normalizedClassDate > planEnd)
   ) {
     return {
       weeklyUsed: 0,
@@ -197,10 +197,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
 
   const weekStart = getWeekStartDate(normalizedClassDate);
   const weekEnd = addDaysToDate(weekStart, 6);
-  // Para cupo total seguimos midiendo el abono original; para catch-up, hasta
-  // el fin de la semana de la clase (puede caer en la ventana de gracia).
-  const usageRangeEnd = bookableUntil && bookableUntil > planEnd ? bookableUntil : planEnd;
-  const catchUpUntil = getCatchUpUsageUntilDate(normalizedClassDate, planStart, usageRangeEnd);
+  const catchUpUntil = getCatchUpUsageUntilDate(normalizedClassDate, planStart, planEnd);
 
   const [weeklyUsed, reservationUsed, usedThroughCatchUpWindow, manualUsed] = await Promise.all([
     countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db, {
@@ -210,7 +207,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
       clientPlan.clientId,
       clientPlan.id,
       planStart,
-      usageRangeEnd,
+      planEnd,
       db
     ),
     countConsumingReservationsInRange(
@@ -244,29 +241,28 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
   const weekStart = getWeekStartDate(today);
   const weekEnd = addDaysToDate(weekStart, 6);
   const { planStart, planEnd } = getPlanPeriodRange(clientPlan);
-  const bookableUntil = getClientPlanBookableUntil(clientPlan, today) || planEnd;
-  const usageRangeEnd =
-    bookableUntil && planEnd && bookableUntil > planEnd ? bookableUntil : planEnd;
-  const catchUpUntil = getCatchUpUsageUntilDate(today, planStart, usageRangeEnd);
+  const catchUpUntil = getCatchUpUsageUntilDate(today, planStart, planEnd);
 
-  const [weeklyUsed, reservationUsed, usedThroughCatchUpWindow, manualUsed] = await Promise.all([
-    countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db),
-    countConsumingReservationsInRange(
-      clientPlan.clientId,
-      clientPlan.id,
-      planStart,
-      usageRangeEnd,
-      db
-    ),
-    countConsumingReservationsInRange(
-      clientPlan.clientId,
-      clientPlan.id,
-      planStart,
-      catchUpUntil,
-      db
-    ),
-    plansRepository.sumUsageAdjustments(clientPlanId, db),
-  ]);
+  const [weeklyUsed, reservationUsed, usedThroughCatchUpWindow, manualUsed, cancellationsUsed] =
+    await Promise.all([
+      countWeeklySlotsUsed(clientPlan, weekStart, weekEnd, db),
+      countConsumingReservationsInRange(
+        clientPlan.clientId,
+        clientPlan.id,
+        planStart,
+        planEnd,
+        db
+      ),
+      countConsumingReservationsInRange(
+        clientPlan.clientId,
+        clientPlan.id,
+        planStart,
+        catchUpUntil,
+        db
+      ),
+      plansRepository.sumUsageAdjustments(clientPlanId, db),
+      countClientQuotaReturningCancellations(clientPlanId, db),
+    ]);
 
   const monthlyUsed = reservationUsed + manualUsed;
 
@@ -289,7 +285,7 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     asOfDate: today,
   });
 
-  return {
+  const planWithUsage = {
     ...clientPlan,
     weeklyClassesUsed: weeklyUsed,
     monthlyClassesUsed: monthlyUsed,
@@ -297,15 +293,14 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     monthResetAt: planStart,
     catchUpSlots: availability.catchUpSlots,
     expectedUsed: availability.expectedUsed,
+    cancellationsUsed,
+    cancellationsLimit: MAX_PLAN_QUOTA_CANCELLATIONS,
+  };
+
+  return {
+    ...planWithUsage,
     manualUsageAdjustments: manualUsed,
-    availability: getPlanAvailability({
-      ...clientPlan,
-      weeklyClassesUsed: weeklyUsed,
-      monthlyClassesUsed: monthlyUsed,
-      catchUpSlots: availability.catchUpSlots,
-      expectedUsed: availability.expectedUsed,
-      status: 'active',
-    }),
+    availability: getPlanAvailability(planWithUsage),
   };
 }
 

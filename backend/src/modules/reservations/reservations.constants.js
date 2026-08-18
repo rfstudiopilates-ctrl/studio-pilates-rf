@@ -41,6 +41,12 @@ export const CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON =
   'Cliente desactivado (limpieza de horario fijo)';
 
 /**
+ * Máximo de cancelaciones del cliente con devolución de cupo (catch-up)
+ * por cada asignación de plan (client_plans).
+ */
+export const MAX_PLAN_QUOTA_CANCELLATIONS = 5;
+
+/**
  * Marcador en la clase origen tras un cambio de horario.
  * Evita cupo semanal fantasma del fijo y que processRecurring recree ese día.
  */
