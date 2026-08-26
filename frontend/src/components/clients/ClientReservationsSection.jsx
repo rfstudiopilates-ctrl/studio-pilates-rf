@@ -293,12 +293,17 @@ export function ClientReservationsSection({ clientId }) {
       const filled = Number(result?.reconciliation?.filled || 0);
       const released = Number(result?.reconciliation?.released || 0);
       const gapsRemaining = Number(result?.reconciliation?.gapsRemaining || 0);
+      const unfilledDates = result?.reconciliation?.unfilledDates || [];
       const totalCreated = created + filled;
 
       if (gapsRemaining > 0) {
+        const datesLabel =
+          unfilledDates.length > 0
+            ? `: ${unfilledDates.map((date) => formatDateDisplay(date)).join(', ')}`
+            : '';
         setFeedback({
           type: 'error',
-          message: `Se crearon ${totalCreated} reserva${totalCreated === 1 ? '' : 's'}, pero aún faltan ${gapsRemaining} fecha${gapsRemaining === 1 ? '' : 's'}. Revisá si la clienta canceló alguna clase o si el cupo del plan está completo.`,
+          message: `Quedaron ${gapsRemaining} clase${gapsRemaining === 1 ? '' : 's'} sin generar${datesLabel}. Revisá el cupo del plan en la pestaña Plan o si la clienta canceló esas fechas.`,
         });
         return;
       }
