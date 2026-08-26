@@ -86,8 +86,9 @@ export const reservationsApi = {
     return data.data;
   },
 
-  processRecurring: async () => {
-    const { data } = await api.post('/reservations/recurring/process');
-    return data.data.processing;
+  processRecurring: async (clientId = null) => {
+    const payload = clientId ? { clientId } : undefined;
+    const { data } = await api.post('/reservations/recurring/process', payload);
+    return data.data;
   },
 };

@@ -178,3 +178,18 @@ export function useUpdateRecurring() {
     },
   });
 }
+
+export function useSyncClientRecurring(clientId) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => reservationsApi.processRecurring(clientId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: RESERVATIONS_KEY });
+      queryClient.invalidateQueries({ queryKey: ['classes'] });
+      queryClient.invalidateQueries({ queryKey: ['schedules'] });
+      queryClient.invalidateQueries({ queryKey: ['plans'] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+    },
+  });
+}

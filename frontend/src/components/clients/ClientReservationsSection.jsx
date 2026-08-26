@@ -23,6 +23,7 @@ import {
   useClientReservations,
   useConfirmReservation,
   useCreateRecurring,
+  useSyncClientRecurring,
   useUpdateRecurring,
 } from '../../hooks/useReservations';
 import { useWeeklySchedule } from '../../hooks/useSchedules';
@@ -58,6 +59,7 @@ export function ClientReservationsSection({ clientId }) {
 
   const createRecurring = useCreateRecurring();
   const updateRecurring = useUpdateRecurring();
+  const syncRecurring = useSyncClientRecurring(clientId);
   const confirmReservation = useConfirmReservation();
   const cancelReservation = useCancelReservation();
 
@@ -112,6 +114,10 @@ export function ClientReservationsSection({ clientId }) {
 
   const remainingSlots = Math.max(0, slotLimit - occupyingRecurring.length);
   const canAddMore = allowsFixedSchedules && remainingSlots > 0;
+  const activeRecurringCount = useMemo(
+    () => occupyingRecurring.filter((item) => item.status === 'active').length,
+    [occupyingRecurring]
+  );
 
   function buildCreateFeedback(result) {
     const created = result?.processing?.created ?? 0;
@@ -270,6 +276,65 @@ export function ClientReservationsSection({ clientId }) {
     }
   }
 
+  async function handleSyncRecurring() {
+    if (
+      !window.confirm(
+        '¿Re sincronizar los horarios fijos de este cliente? El sistema revisará las clases futuras hasta el fin del plan y completará las que falten.'
+      )
+    ) {
+      return;
+    }
+
+    setFeedback(null);
+
+    try {
+      const result = await syncRecurring.mutateAsync();
+      const created = Number(result?.processing?.created || 0);
+      const filled = Number(result?.reconciliation?.filled || 0);
+      const released = Number(result?.reconciliation?.released || 0);
+      const gapsRemaining = Number(result?.reconciliation?.gapsRemaining || 0);
+      const totalCreated = created + filled;
+
+      if (gapsRemaining > 0) {
+        setFeedback({
+          type: 'error',
+          message: `Se crearon ${totalCreated} reserva${totalCreated === 1 ? '' : 's'}, pero aún faltan ${gapsRemaining} fecha${gapsRemaining === 1 ? '' : 's'}. Revisá si la clienta canceló alguna clase o si el cupo del plan está completo.`,
+        });
+        return;
+      }
+
+      if (totalCreated > 0 || released > 0) {
+        const parts = [];
+        if (totalCreated > 0) {
+          parts.push(
+            `se ${totalCreated === 1 ? 'generó' : 'generaron'} ${totalCreated} reserva${totalCreated === 1 ? '' : 's'}`
+          );
+        }
+        if (released > 0) {
+          parts.push(
+            `se ${released === 1 ? 'liberó' : 'liberaron'} ${released} reserva${released === 1 ? '' : 's'} mal ubicada${released === 1 ? '' : 's'}`
+          );
+        }
+        setFeedback({
+          type: 'success',
+          message: `Horarios fijos re sincronizados: ${parts.join(' y ')}. Revisá el listado de reservas.`,
+        });
+        return;
+      }
+
+      setFeedback({
+        type: 'success',
+        message:
+          'Horarios fijos re sincronizados. No faltaban clases por generar; el calendario ya estaba al día.',
+      });
+    } catch (error) {
+      setFeedback({
+        type: 'error',
+        message: getErrorMessage(error, 'No se pudieron re sincronizar los horarios fijos.'),
+      });
+    }
+  }
+
   return (
     <div className="space-y-6">
       {feedback ? (
@@ -380,11 +445,32 @@ export function ClientReservationsSection({ clientId }) {
                 </p>
               </div>
             </div>
-            <div className="rounded-xl border border-border bg-surface-muted/40 px-3 py-2 text-sm">
-              <span className="font-semibold text-text">{occupyingRecurring.length}</span>
-              <span className="text-text-muted"> / {slotLimit} asignados</span>
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <div className="rounded-xl border border-border bg-surface-muted/40 px-3 py-2 text-sm">
+                <span className="font-semibold text-text">{occupyingRecurring.length}</span>
+                <span className="text-text-muted"> / {slotLimit} asignados</span>
+              </div>
+              {activeRecurringCount > 0 ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-9 px-3 text-xs"
+                  onClick={handleSyncRecurring}
+                  isLoading={syncRecurring.isPending}
+                >
+                  Re sincronizar fijos
+                </Button>
+              ) : null}
             </div>
           </div>
+
+          {activeRecurringCount > 0 ? (
+            <p className="mt-4 text-xs text-text-muted">
+              Si cambiaste un horario fijo y faltan clases futuras, usá{' '}
+              <span className="font-medium text-text">Re sincronizar fijos</span> para completarlas
+              hasta el fin del plan.
+            </p>
+          ) : null}
 
           {isLoadingRecurring ? (
             <p className="mt-5 text-sm text-text-muted">Cargando horarios fijos...</p>

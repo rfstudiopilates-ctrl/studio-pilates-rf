@@ -248,6 +248,25 @@ CREATE TABLE IF NOT EXISTS client_plans (
     ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+-- Ajustes manuales de cupo (clases de recuperación ya usadas fuera del sistema)
+CREATE TABLE IF NOT EXISTS client_plan_usage_adjustments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  client_plan_id INT UNSIGNED NOT NULL,
+  quantity SMALLINT UNSIGNED NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  created_by_admin_id INT UNSIGNED NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_usage_adj_plan (client_plan_id),
+  KEY idx_usage_adj_created (created_at),
+  CONSTRAINT fk_usage_adj_client_plan
+    FOREIGN KEY (client_plan_id) REFERENCES client_plans (id)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_usage_adj_admin
+    FOREIGN KEY (created_by_admin_id) REFERENCES users (id)
+    ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 INSERT INTO plans (name, description, price, weekly_classes, monthly_classes, duration_days, status)
 SELECT 'Mensual 1', '3 clases por semana (12 en el abono). Vigencia 4 semanas. Clases no usadas o canceladas a tiempo se recuperan hasta el fin del plan.', 45000.00, 3, 12, 28, 'active'
 WHERE NOT EXISTS (SELECT 1 FROM plans WHERE name = 'Mensual 1');
@@ -412,6 +431,7 @@ CREATE TABLE IF NOT EXISTS class_reservations (
   cancelled_at TIMESTAMP NULL,
   cancelled_by ENUM('client', 'admin') NULL,
   cancellation_reason VARCHAR(500) NULL,
+  admin_cleared_at TIMESTAMP NULL,
   created_by_admin_id INT UNSIGNED NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -424,6 +444,8 @@ CREATE TABLE IF NOT EXISTS class_reservations (
   KEY idx_reservations_status_booking (status, booking_type),
   KEY idx_reservations_recurring (recurring_reservation_id),
   KEY idx_reservations_created (created_at),
+  KEY idx_reservations_cancelled_at (cancelled_at),
+  KEY idx_reservations_admin_cleared (admin_cleared_at),
   CONSTRAINT fk_reservations_client
     FOREIGN KEY (client_id) REFERENCES clients (id)
     ON DELETE CASCADE,
