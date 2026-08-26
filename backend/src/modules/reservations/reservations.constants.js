@@ -30,6 +30,9 @@ export const PAUSED_RECURRING_CANCELLATION_REASON = 'Horario fijo pausado';
 
 export const CANCELLED_RECURRING_CANCELLATION_REASON = 'Horario fijo cancelado';
 
+/** Liberación de cupo al reequilibrar fijos tras un cambio de turno. */
+export const FIXED_SCHEDULE_REBALANCE_REASON = 'Ajuste de horarios fijos';
+
 export const PLAN_CANCELLED_REASON = 'Plan cancelado';
 
 export const PLAN_EXPIRED_GRACE_RELEASE_REASON =

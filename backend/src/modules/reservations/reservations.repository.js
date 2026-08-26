@@ -687,6 +687,26 @@ export async function countOccupyingRecurringByClient(clientId, connection = poo
   return Number(rows[0]?.total || 0);
 }
 
+/** Reservas fijas futuras que consumen cupo (para reequilibrar tras cambio de turno). */
+export async function listFutureConsumingRecurringReservationsByClient(
+  clientId,
+  fromDate,
+  connection = pool
+) {
+  const [rows] = await connection.query(
+    `${reservationSelect}
+     WHERE r.client_id = ?
+       AND r.booking_type = 'recurring'
+       AND r.consumes_plan = 1
+       AND r.status IN ('pending', 'confirmed')
+       AND gc.class_date >= ?
+     ORDER BY gc.class_date DESC, gc.start_time DESC`,
+    [clientId, fromDate]
+  );
+
+  return rows.map(mapReservationRow);
+}
+
 export async function listActiveFutureReservationsByRecurring(recurringId, fromDate, connection = pool) {
   const [rows] = await connection.query(
     `${reservationSelect}

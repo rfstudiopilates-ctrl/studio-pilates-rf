@@ -33,6 +33,7 @@ import {
   ACTIVE_RESERVATION_STATUSES,
   PAUSED_RECURRING_CANCELLATION_REASON,
   CANCELLED_RECURRING_CANCELLATION_REASON,
+  FIXED_SCHEDULE_REBALANCE_REASON,
   PLAN_CANCELLED_REASON,
   PLAN_EXPIRED_GRACE_RELEASE_REASON,
   CLIENT_DEACTIVATED_REASON,
@@ -67,6 +68,257 @@ function formatDebtLabel(amount) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function isQuotaLimitError(message = '') {
+  return (
+    message.includes('límite de clases') ||
+    message.includes('cupo del abono') ||
+    message.includes('todas las clases') ||
+    message.includes('cupo de esta semana') ||
+    message.includes('clases de recuperación') ||
+    message.includes('plan activo') ||
+    message.includes('ya comenzó') ||
+    message.includes('ya finalizó')
+  );
+}
+
+function sortRecurringCandidatesWeekFair(candidates) {
+  return [...candidates].sort((a, b) => {
+    const weekA = getWeekStartDate(a.classItem.classDate);
+    const weekB = getWeekStartDate(b.classItem.classDate);
+    const weekCompare = weekA.localeCompare(weekB);
+    if (weekCompare !== 0) {
+      return weekCompare;
+    }
+
+    const dateCompare = String(a.classItem.classDate).localeCompare(String(b.classItem.classDate));
+    if (dateCompare !== 0) {
+      return dateCompare;
+    }
+
+    return String(a.classItem.startTime).localeCompare(String(b.classItem.startTime));
+  });
+}
+
+function canReactivateCancelledReservation(existing) {
+  return (
+    existing?.status === 'cancelled' &&
+    existing.cancelledBy !== 'client' &&
+    existing.cancellationReason !== SCHEDULE_CHANGE_VACATED_REASON &&
+    REACTIVATABLE_SYSTEM_CANCELLATION_REASONS.includes(existing.cancellationReason)
+  );
+}
+
+async function tryMaterializeRecurringCandidate(recurring, classItem) {
+  const existing = await reservationsRepository.findReservationByClientAndClass(
+    recurring.clientId,
+    classItem.id
+  );
+
+  if (existing) {
+    if (ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
+      return { status: 'skipped', reason: 'active' };
+    }
+
+    if (!canReactivateCancelledReservation(existing)) {
+      return { status: 'skipped', reason: 'blocked' };
+    }
+  }
+
+  const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
+    recurring.clientId,
+    classItem.classDate
+  );
+
+  if (sameDay) {
+    return { status: 'skipped', reason: 'same_day' };
+  }
+
+  await createReservation({
+    clientId: recurring.clientId,
+    generatedClassId: classItem.id,
+    status: 'confirmed',
+    bookingType: 'recurring',
+    recurringReservationId: recurring.id,
+    createdByAdminId: recurring.createdByAdminId,
+  });
+
+  return { status: 'created' };
+}
+
+/**
+ * Tras cambiar horarios fijos (cancelar viejos + crear nuevos de a uno),
+ * rellena fechas obligatorias del fijo aunque el cupo ya esté lleno por
+ * reservas generadas en desorden. Libera reservas fijas sobrantes (últimas
+ * primero, o fuera de vigencia) para cubrir huecos como 2/9 o 4/9.
+ */
+export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
+  const today = getTodayInArgentina();
+  const activePlan = await plansRepository.findActiveClientPlan(clientId);
+
+  if (!activePlan) {
+    return { filled: 0, released: 0, gapsRemaining: 0 };
+  }
+
+  await refreshPlanUsageCounters(activePlan.id);
+
+  const recurrings = (await reservationsRepository.listRecurringByClient(clientId)).filter(
+    (item) => item.status === 'active'
+  );
+
+  if (!recurrings.length) {
+    return { filled: 0, released: 0, gapsRemaining: 0 };
+  }
+
+  const planStart = toDateString(activePlan.startDate);
+  const planEnd = toDateString(activePlan.endDate);
+  const generationTo = addDaysToDate(today, (env.classGenerationWeeksAhead || 8) * 7);
+  const toDate =
+    planEnd && planEnd < generationTo ? planEnd : generationTo;
+
+  const gaps = [];
+
+  for (const recurring of recurrings) {
+    const recurringStart = toDateString(recurring.startDate) || today;
+    let fromDate = recurringStart > today ? recurringStart : today;
+
+    if (planStart && planStart > fromDate) {
+      fromDate = planStart;
+    }
+
+    if (fromDate > toDate) {
+      continue;
+    }
+
+    const classes = await reservationsRepository.findFutureClassesForRecurring(
+      recurring,
+      fromDate,
+      toDate
+    );
+
+    for (const classItem of classes) {
+      const existing = await reservationsRepository.findReservationByClientAndClass(
+        clientId,
+        classItem.id
+      );
+
+      if (existing && ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
+        continue;
+      }
+
+      if (existing && !canReactivateCancelledReservation(existing)) {
+        continue;
+      }
+
+      const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
+        clientId,
+        classItem.classDate
+      );
+
+      if (sameDay) {
+        continue;
+      }
+
+      gaps.push({
+        recurring,
+        classItem,
+        classDate: toDateString(classItem.classDate),
+        filled: false,
+      });
+    }
+  }
+
+  gaps.sort((a, b) => a.classDate.localeCompare(b.classDate));
+
+  let filled = 0;
+  let released = 0;
+  const gapDates = () => new Set(gaps.filter((gap) => !gap.filled).map((gap) => gap.classDate));
+
+  const tryFillGaps = async () => {
+    let created = 0;
+
+    for (const gap of gaps) {
+      if (gap.filled) {
+        continue;
+      }
+
+      try {
+        const result = await tryMaterializeRecurringCandidate(gap.recurring, gap.classItem);
+        if (result.status === 'created') {
+          gap.filled = true;
+          created += 1;
+        }
+      } catch {
+        // Continuar con el resto; el reequilibrio puede liberar cupo.
+      }
+    }
+
+    filled += created;
+    return created;
+  };
+
+  await tryFillGaps();
+
+  const missingDates = () => gapDates();
+  if (missingDates().size === 0) {
+    return { filled, released, gapsRemaining: 0 };
+  }
+
+  const pickTrimCandidate = (futureReservations) => {
+    const missing = missingDates();
+
+    const beyondPlan = futureReservations.filter(
+      (item) => planEnd && toDateString(item.classDate) > planEnd
+    );
+    if (beyondPlan.length) {
+      return beyondPlan[0];
+    }
+
+    return futureReservations.find((item) => !missing.has(toDateString(item.classDate))) || null;
+  };
+
+  const maxTrimAttempts = Math.max(gaps.length * 2, 6);
+
+  for (let attempt = 0; attempt < maxTrimAttempts && missingDates().size > 0; attempt += 1) {
+    await refreshPlanUsageCounters(activePlan.id);
+
+    const createdNow = await tryFillGaps();
+    if (createdNow > 0 && missingDates().size === 0) {
+      break;
+    }
+
+    const futureReservations =
+      await reservationsRepository.listFutureConsumingRecurringReservationsByClient(clientId, today);
+    const trimCandidate = pickTrimCandidate(futureReservations);
+
+    if (!trimCandidate) {
+      break;
+    }
+
+    try {
+      await cancelReservation({
+        reservationId: trimCandidate.id,
+        cancelledBy: 'admin',
+        cancellationReason: FIXED_SCHEDULE_REBALANCE_REASON,
+        adminId: options.adminId || null,
+        deferRecurringProcess: true,
+        forceReturnQuota: true,
+        silent: true,
+      });
+      released += 1;
+    } catch {
+      break;
+    }
+  }
+
+  await refreshPlanUsageCounters(activePlan.id);
+
+  return {
+    filled,
+    released,
+    gapsRemaining: gaps.filter((gap) => !gap.filled).length,
+  };
 }
 
 async function validateClientCanBook(clientId, { allowDebt = false, client = null } = {}) {
@@ -711,6 +963,7 @@ export async function cancelReservation({
   skipRecoveryCredit = false,
   forceReturnQuota = false,
   studioCancelledClass = false,
+  deferRecurringProcess = false,
 }) {
   const settings = await getSettings();
   const connection = await pool.getConnection();
@@ -864,7 +1117,7 @@ export async function cancelReservation({
 
     // Si el cupo volvió al abono, regenerar fijos pendientes de la semana
     // (ej. viernes que aún no tenía fila y quedó trabado por cupo).
-    if (returnedToPlan) {
+    if (returnedToPlan && !deferRecurringProcess) {
       try {
         await processRecurringReservations({ clientId: reservation.clientId });
         if (reservation.clientPlanId) {
@@ -1575,9 +1828,16 @@ export async function createRecurringReservation(payload, adminId) {
   // Asegura clases vinculadas y materializa todos los fijos del cliente en orden de fecha.
   await generateClasses();
 
+  const activePlanForSync = await plansRepository.findActiveClientPlan(client.id);
+  if (activePlanForSync) {
+    await refreshPlanUsageCounters(activePlanForSync.id);
+  }
+
   const processing = await processRecurringReservations({
     clientId: client.id,
   });
+
+  const reconciliation = await reconcileFixedScheduleCoverage(client.id, { adminId });
 
   await clientsRepository.createClientHistory({
     clientId: client.id,
@@ -1586,12 +1846,13 @@ export async function createRecurringReservation(payload, adminId) {
     metadata: {
       recurringReservationId: recurring.id,
       processing,
+      reconciliation,
       pastAttendance: pastAttendanceResult,
     },
     performedById: adminId,
   });
 
-  return { recurring, processing, pastAttendance: pastAttendanceResult };
+  return { recurring, processing, reconciliation, pastAttendance: pastAttendanceResult };
 }
 
 export async function updateRecurringReservation(id, payload, adminId) {
@@ -1672,11 +1933,20 @@ export async function updateRecurringReservation(id, payload, adminId) {
               ? PAUSED_RECURRING_CANCELLATION_REASON
               : CANCELLED_RECURRING_CANCELLATION_REASON,
           adminId,
+          deferRecurringProcess: true,
         });
       } catch {
         // Continuar con el resto si alguna ya no está activa.
       }
     }
+
+    const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
+    if (activePlan) {
+      await refreshPlanUsageCounters(activePlan.id);
+    }
+
+    await processRecurringReservations({ clientId: recurring.clientId });
+    await reconcileFixedScheduleCoverage(recurring.clientId, { adminId });
   }
 
   if (payload.status === 'active') {
@@ -1855,74 +2125,22 @@ export async function processRecurringReservations(options = {}) {
     }
   }
 
-  // Lunes + martes (y cualquier otro fijo) se completan en orden de fecha,
-  // respetando 2/semana y el cupo total del abono.
-  candidates.sort((a, b) => {
-    const dateCompare = String(a.classItem.classDate).localeCompare(String(b.classItem.classDate));
-    if (dateCompare !== 0) return dateCompare;
-    return String(a.classItem.startTime).localeCompare(String(b.classItem.startTime));
-  });
+  // Semana a semana (lun→dom) para repartir cupo entre fijos del mismo cliente.
+  const sortedCandidates = sortRecurringCandidatesWeekFair(candidates);
 
-  for (const { recurring, classItem } of candidates) {
+  for (const { recurring, classItem } of sortedCandidates) {
     try {
-      const existing = await reservationsRepository.findReservationByClientAndClass(
-        recurring.clientId,
-        classItem.id
-      );
+      const result = await tryMaterializeRecurringCandidate(recurring, classItem);
 
-      if (existing) {
-        if (ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
-          skipped += 1;
-          continue;
-        }
-
-        // Reactivar solo cancelaciones de sistema (plan cancelado, pausa, etc.).
-        // Respetar cancelaciones puntuales del cliente y marcadores de cambio de horario.
-        const canReactivateCancelled =
-          existing.status === 'cancelled' &&
-          existing.cancelledBy !== 'client' &&
-          existing.cancellationReason !== SCHEDULE_CHANGE_VACATED_REASON &&
-          REACTIVATABLE_SYSTEM_CANCELLATION_REASONS.includes(existing.cancellationReason);
-
-        if (!canReactivateCancelled) {
-          skipped += 1;
-          continue;
-        }
-      }
-
-      const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
-        recurring.clientId,
-        classItem.classDate
-      );
-
-      if (sameDay) {
+      if (result.status === 'created') {
+        created += 1;
+      } else {
         skipped += 1;
-        continue;
       }
-
-      await createReservation({
-        clientId: recurring.clientId,
-        generatedClassId: classItem.id,
-        status: 'confirmed',
-        bookingType: 'recurring',
-        recurringReservationId: recurring.id,
-        createdByAdminId: recurring.createdByAdminId,
-      });
-
-      created += 1;
     } catch (error) {
       const message = error.message || 'Error al crear reserva fija';
-      const isQuotaLimit =
-        message.includes('límite de clases') ||
-        message.includes('cupo del abono') ||
-        message.includes('todas las clases') ||
-        message.includes('cupo de esta semana') ||
-        message.includes('clases de recuperación') ||
-        message.includes('plan activo') ||
-        message.includes('ya comenzó') ||
-        message.includes('ya finalizó');
 
-      if (isQuotaLimit) {
+      if (isQuotaLimitError(message)) {
         skipped += 1;
         continue;
       }

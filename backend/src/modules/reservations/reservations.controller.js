@@ -287,8 +287,19 @@ export async function updateRecurring(req, res, next) {
 
 export async function processRecurring(req, res, next) {
   try {
-    const processing = await reservationsService.processRecurringReservations();
-    res.json({ success: true, data: { processing } });
+    const clientId = req.body?.clientId ? Number(req.body.clientId) : null;
+    const options = clientId ? { clientId } : {};
+
+    const processing = await reservationsService.processRecurringReservations(options);
+    let reconciliation = null;
+
+    if (clientId) {
+      reconciliation = await reservationsService.reconcileFixedScheduleCoverage(clientId, {
+        adminId: req.user?.id,
+      });
+    }
+
+    res.json({ success: true, data: { processing, reconciliation } });
   } catch (error) {
     next(error);
   }
