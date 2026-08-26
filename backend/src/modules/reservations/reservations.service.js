@@ -110,7 +110,11 @@ function canReactivateCancelledReservation(existing) {
   );
 }
 
-async function tryMaterializeRecurringCandidate(recurring, classItem) {
+async function tryMaterializeRecurringCandidate(
+  recurring,
+  classItem,
+  { allowClientCancelledReactivation = false } = {}
+) {
   const existing = await reservationsRepository.findReservationByClientAndClass(
     recurring.clientId,
     classItem.id
@@ -121,7 +125,11 @@ async function tryMaterializeRecurringCandidate(recurring, classItem) {
       return { status: 'skipped', reason: 'active' };
     }
 
-    if (!canReactivateCancelledReservation(existing)) {
+    const canReactivate =
+      canReactivateCancelledReservation(existing) ||
+      (allowClientCancelledReactivation && existing.status === 'cancelled');
+
+    if (!canReactivate) {
       return { status: 'skipped', reason: 'blocked' };
     }
   }
@@ -147,36 +155,13 @@ async function tryMaterializeRecurringCandidate(recurring, classItem) {
   return { status: 'created' };
 }
 
-/**
- * Tras cambiar horarios fijos (cancelar viejos + crear nuevos de a uno),
- * rellena fechas obligatorias del fijo aunque el cupo ya esté lleno por
- * reservas generadas en desorden. Libera reservas fijas sobrantes (últimas
- * primero, o fuera de vigencia) para cubrir huecos como 2/9 o 4/9.
- */
-export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
-  const today = getTodayInArgentina();
-  const activePlan = await plansRepository.findActiveClientPlan(clientId);
-
-  if (!activePlan) {
-    return { filled: 0, released: 0, gapsRemaining: 0 };
-  }
-
-  await refreshPlanUsageCounters(activePlan.id);
-
-  const recurrings = (await reservationsRepository.listRecurringByClient(clientId)).filter(
-    (item) => item.status === 'active'
-  );
-
-  if (!recurrings.length) {
-    return { filled: 0, released: 0, gapsRemaining: 0 };
-  }
-
+async function collectRequiredFixedScheduleGaps(clientId, activePlan, recurrings, today) {
   const planStart = toDateString(activePlan.startDate);
   const planEnd = toDateString(activePlan.endDate);
   const generationTo = addDaysToDate(today, (env.classGenerationWeeksAhead || 8) * 7);
-  const toDate =
-    planEnd && planEnd < generationTo ? planEnd : generationTo;
+  const toDate = planEnd && planEnd < generationTo ? planEnd : generationTo;
 
+  const requiredClassIds = new Set();
   const gaps = [];
 
   for (const recurring of recurrings) {
@@ -198,6 +183,9 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
     );
 
     for (const classItem of classes) {
+      requiredClassIds.add(classItem.id);
+
+      const classDate = toDateString(classItem.classDate);
       const existing = await reservationsRepository.findReservationByClientAndClass(
         clientId,
         classItem.id
@@ -207,8 +195,14 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
         continue;
       }
 
+      let blockReason = null;
+
       if (existing && !canReactivateCancelledReservation(existing)) {
-        continue;
+        if (existing.status === 'cancelled' && existing.cancelledBy === 'client') {
+          blockReason = 'client_cancelled';
+        } else {
+          blockReason = 'blocked';
+        }
       }
 
       const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
@@ -217,25 +211,53 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
       );
 
       if (sameDay) {
-        continue;
+        blockReason = 'same_day';
       }
 
       gaps.push({
         recurring,
         classItem,
-        classDate: toDateString(classItem.classDate),
+        classDate,
         filled: false,
+        blockReason,
       });
     }
   }
 
   gaps.sort((a, b) => a.classDate.localeCompare(b.classDate));
 
+  return { gaps, requiredClassIds, planEnd, toDate };
+}
+
+/**
+ * Tras cambiar horarios fijos (cancelar viejos + crear nuevos de a uno),
+ * rellena fechas obligatorias del fijo aunque el cupo ya esté lleno por
+ * reservas generadas en desorden. Libera reservas futuras que no correspondan
+ * al calendario del fijo activo (turno viejo, fuera de vigencia, etc.).
+ */
+export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
+  const today = getTodayInArgentina();
+  const activePlan = await plansRepository.findActiveClientPlan(clientId);
+
+  if (!activePlan) {
+    return { filled: 0, released: 0, gapsRemaining: 0, unfilledDates: [], blocked: [] };
+  }
+
+  await generateClasses();
+  await refreshPlanUsageCounters(activePlan.id);
+
+  const recurrings = (await reservationsRepository.listRecurringByClient(clientId)).filter(
+    (item) => item.status === 'active'
+  );
+
+  if (!recurrings.length) {
+    return { filled: 0, released: 0, gapsRemaining: 0, unfilledDates: [], blocked: [] };
+  }
+
   let filled = 0;
   let released = 0;
-  const gapDates = () => new Set(gaps.filter((gap) => !gap.filled).map((gap) => gap.classDate));
 
-  const tryFillGaps = async () => {
+  const tryFillGaps = async (gaps, { allowClientCancelledReactivation = false } = {}) => {
     let created = 0;
 
     for (const gap of gaps) {
@@ -243,14 +265,51 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
         continue;
       }
 
+      if (gap.blockReason === 'same_day') {
+        const sameDay = await reservationsRepository.findActiveReservationByClientAndDate(
+          clientId,
+          gap.classDate
+        );
+
+        if (
+          sameDay &&
+          !requiredClassIds.has(sameDay.generatedClassId) &&
+          sameDay.bookingType === 'recurring'
+        ) {
+          try {
+            await cancelReservation({
+              reservationId: sameDay.id,
+              cancelledBy: 'admin',
+              cancellationReason: FIXED_SCHEDULE_REBALANCE_REASON,
+              adminId: options.adminId || null,
+              deferRecurringProcess: true,
+              forceReturnQuota: true,
+              silent: true,
+            });
+            released += 1;
+            gap.blockReason = null;
+          } catch {
+            continue;
+          }
+        } else {
+          continue;
+        }
+      }
+
       try {
-        const result = await tryMaterializeRecurringCandidate(gap.recurring, gap.classItem);
+        const result = await tryMaterializeRecurringCandidate(gap.recurring, gap.classItem, {
+          allowClientCancelledReactivation:
+            allowClientCancelledReactivation || gap.blockReason === 'client_cancelled',
+        });
+
         if (result.status === 'created') {
           gap.filled = true;
+          gap.blockReason = null;
+          gap.lastError = null;
           created += 1;
         }
-      } catch {
-        // Continuar con el resto; el reequilibrio puede liberar cupo.
+      } catch (error) {
+        gap.lastError = isQuotaLimitError(error.message) ? 'quota' : 'error';
       }
     }
 
@@ -258,16 +317,7 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
     return created;
   };
 
-  await tryFillGaps();
-
-  const missingDates = () => gapDates();
-  if (missingDates().size === 0) {
-    return { filled, released, gapsRemaining: 0 };
-  }
-
-  const pickTrimCandidate = (futureReservations) => {
-    const missing = missingDates();
-
+  const pickTrimCandidate = (futureReservations, requiredClassIds, planEnd) => {
     const beyondPlan = futureReservations.filter(
       (item) => planEnd && toDateString(item.classDate) > planEnd
     );
@@ -275,22 +325,41 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
       return beyondPlan[0];
     }
 
-    return futureReservations.find((item) => !missing.has(toDateString(item.classDate))) || null;
+    return (
+      futureReservations.find((item) => !requiredClassIds.has(item.generatedClassId)) || null
+    );
   };
 
-  const maxTrimAttempts = Math.max(gaps.length * 2, 6);
+  let { gaps, requiredClassIds, planEnd } = await collectRequiredFixedScheduleGaps(
+    clientId,
+    activePlan,
+    recurrings,
+    today
+  );
 
-  for (let attempt = 0; attempt < maxTrimAttempts && missingDates().size > 0; attempt += 1) {
+  await tryFillGaps(gaps, { allowClientCancelledReactivation: true });
+
+  const remainingGaps = () => gaps.filter((gap) => !gap.filled && gap.blockReason !== 'same_day');
+
+  const maxTrimAttempts = Math.max(remainingGaps().length * 2, 8);
+
+  for (let attempt = 0; attempt < maxTrimAttempts && remainingGaps().length > 0; attempt += 1) {
     await refreshPlanUsageCounters(activePlan.id);
 
-    const createdNow = await tryFillGaps();
-    if (createdNow > 0 && missingDates().size === 0) {
+    const createdNow = await tryFillGaps(gaps, { allowClientCancelledReactivation: true });
+    if (createdNow > 0 && remainingGaps().length === 0) {
       break;
     }
 
-    const futureReservations =
+    let futureReservations =
       await reservationsRepository.listFutureConsumingRecurringReservationsByClient(clientId, today);
-    const trimCandidate = pickTrimCandidate(futureReservations);
+    let trimCandidate = pickTrimCandidate(futureReservations, requiredClassIds, planEnd);
+
+    if (!trimCandidate) {
+      futureReservations =
+        await reservationsRepository.listFutureConsumingReservationsByClient(clientId, today);
+      trimCandidate = pickTrimCandidate(futureReservations, requiredClassIds, planEnd);
+    }
 
     if (!trimCandidate) {
       break;
@@ -307,6 +376,14 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
         silent: true,
       });
       released += 1;
+
+      // Recalcular huecos: la reserva liberada puede haber sido requerida o no.
+      ({ gaps, requiredClassIds, planEnd } = await collectRequiredFixedScheduleGaps(
+        clientId,
+        activePlan,
+        recurrings,
+        today
+      ));
     } catch {
       break;
     }
@@ -314,10 +391,20 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
 
   await refreshPlanUsageCounters(activePlan.id);
 
+  const unfilled = gaps.filter((gap) => !gap.filled);
+  const blocked = unfilled
+    .filter((gap) => gap.blockReason && gap.blockReason !== 'same_day')
+    .map((gap) => ({
+      date: gap.classDate,
+      reason: gap.blockReason || gap.lastError || 'unknown',
+    }));
+
   return {
     filled,
     released,
-    gapsRemaining: gaps.filter((gap) => !gap.filled).length,
+    gapsRemaining: unfilled.length,
+    unfilledDates: unfilled.map((gap) => gap.classDate),
+    blocked,
   };
 }
 
