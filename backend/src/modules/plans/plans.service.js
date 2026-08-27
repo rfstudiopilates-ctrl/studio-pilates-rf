@@ -244,6 +244,11 @@ export async function renewClientPlan(clientId, payload, adminId) {
     await plansRepository.updateClientPlanStatus(previousPlan.id, 'expired');
   }
 
+  const cancelledPrevious = await reservationsService.cancelFutureReservationsForClientPlan(
+    previousPlan.id,
+    { adminId }
+  );
+
   const clientPlan = await plansRepository.createClientPlan({
     clientId,
     planId: catalogPlan.id,
@@ -267,12 +272,15 @@ export async function renewClientPlan(clientId, payload, adminId) {
     await reservationsService.updateRecurringForPlanRenewal(recurring.id, {
       clientPlanId: clientPlan.id,
       endDate,
-      startDate: toDateString(recurring.startDate) || startDate,
+      startDate,
     });
     updatedRecurring += 1;
   }
 
   const processing = await reservationsService.processRecurringReservations({ clientId });
+  const reconciliation = await reservationsService.reconcileFixedScheduleCoverage(clientId, {
+    adminId,
+  });
 
   await clientsRepository.createClientHistory({
     clientId,
@@ -285,7 +293,9 @@ export async function renewClientPlan(clientId, payload, adminId) {
       startDate,
       endDate,
       updatedRecurring,
+      cancelledPrevious,
       processing,
+      reconciliation,
     },
     performedById: adminId,
   });
@@ -299,7 +309,9 @@ export async function renewClientPlan(clientId, payload, adminId) {
     },
     previousClientPlanId: previousPlan.id,
     updatedRecurring,
+    cancelledPrevious,
     processing,
+    reconciliation,
     defaultStartDate: getDefaultRenewStartDate(previousPlan.endDate, today),
   };
 }

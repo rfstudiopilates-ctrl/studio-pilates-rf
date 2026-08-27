@@ -750,6 +750,23 @@ export async function listFutureConsumingRecurringReservationsByClient(
   return rows.map(mapReservationRow);
 }
 
+export async function listActiveFutureReservationsByClientPlan(
+  clientPlanId,
+  fromDate,
+  connection = pool
+) {
+  const [rows] = await connection.query(
+    `${reservationSelect}
+     WHERE r.client_plan_id = ?
+       AND r.status IN ('pending', 'confirmed')
+       AND gc.class_date >= ?
+     ORDER BY gc.class_date ASC, gc.start_time ASC`,
+    [clientPlanId, fromDate]
+  );
+
+  return rows.map(mapReservationRow);
+}
+
 export async function listActiveFutureReservationsByRecurring(recurringId, fromDate, connection = pool) {
   const [rows] = await connection.query(
     `${reservationSelect}
@@ -758,6 +775,20 @@ export async function listActiveFutureReservationsByRecurring(recurringId, fromD
        AND gc.class_date >= ?
      ORDER BY gc.class_date ASC, gc.start_time ASC`,
     [recurringId, fromDate]
+  );
+
+  return rows.map(mapReservationRow);
+}
+
+/** Reservas pending/confirmed futuras de un cliente (desde fromDate inclusive). */
+export async function listActiveFutureReservationsByClient(clientId, fromDate, connection = pool) {
+  const [rows] = await connection.query(
+    `${reservationSelect}
+     WHERE r.client_id = ?
+       AND r.status IN ('pending', 'confirmed')
+       AND gc.class_date >= ?
+     ORDER BY gc.class_date ASC, gc.start_time ASC`,
+    [clientId, fromDate]
   );
 
   return rows.map(mapReservationRow);

@@ -34,6 +34,7 @@ import {
   PAUSED_RECURRING_CANCELLATION_REASON,
   CANCELLED_RECURRING_CANCELLATION_REASON,
   FIXED_SCHEDULE_REBALANCE_REASON,
+  PLAN_OUTSIDE_VIGENCY_REASON,
   PLAN_CANCELLED_REASON,
   PLAN_EXPIRED_GRACE_RELEASE_REASON,
   CLIENT_DEACTIVATED_REASON,
@@ -304,6 +305,110 @@ async function releaseMisallocatedPlanUsage(clientId, activePlan, recurrings, op
   return { released, details };
 }
 
+/**
+ * Cancela reservas futuras ligadas a un client_plan concreto (p. ej. ciclo anterior al renovar).
+ */
+export async function cancelFutureReservationsForClientPlan(clientPlanId, options = {}) {
+  const today = getTodayInArgentina();
+  const reservations = await reservationsRepository.listActiveFutureReservationsByClientPlan(
+    clientPlanId,
+    today
+  );
+
+  let cancelled = 0;
+  const details = [];
+
+  for (const reservation of reservations) {
+    try {
+      await cancelReservation({
+        reservationId: reservation.id,
+        cancelledBy: 'admin',
+        cancellationReason: options.reason || PLAN_OUTSIDE_VIGENCY_REASON,
+        adminId: options.adminId || null,
+        deferRecurringProcess: true,
+        forceReturnQuota: false,
+        silent: true,
+      });
+      cancelled += 1;
+      details.push({
+        date: toDateString(reservation.classDate),
+        time: reservation.startTime,
+      });
+    } catch {
+      // Continuar con el resto.
+    }
+  }
+
+  return { cancelled, details };
+}
+
+/**
+ * Cancela reservas futuras que no pertenecen al plan activo o caen fuera de su vigencia.
+ */
+async function cleanupFutureReservationsOutsideActivePlan(clientId, activePlan, options = {}) {
+  const today = getTodayInArgentina();
+  const planStart = toDateString(activePlan.startDate);
+  const planEnd = toDateString(activePlan.endDate);
+
+  if (!planStart || !planEnd) {
+    return { cancelled: 0, details: [] };
+  }
+
+  const reservations = await reservationsRepository.listActiveFutureReservationsByClient(
+    clientId,
+    today
+  );
+
+  let cancelled = 0;
+  const details = [];
+
+  for (const reservation of reservations) {
+    const classDate = toDateString(reservation.classDate);
+    const wrongPlan = Number(reservation.clientPlanId) !== Number(activePlan.id);
+    const outsideRange = classDate < planStart || classDate > planEnd;
+
+    if (!wrongPlan && !outsideRange) {
+      continue;
+    }
+
+    try {
+      await cancelReservation({
+        reservationId: reservation.id,
+        cancelledBy: 'admin',
+        cancellationReason: PLAN_OUTSIDE_VIGENCY_REASON,
+        adminId: options.adminId || null,
+        deferRecurringProcess: true,
+        forceReturnQuota: !wrongPlan,
+        silent: true,
+      });
+      cancelled += 1;
+      details.push({
+        date: classDate,
+        time: reservation.startTime,
+        wrongPlan,
+        outsideRange,
+      });
+    } catch {
+      // Continuar con el resto.
+    }
+  }
+
+  if (cancelled > 0) {
+    await refreshPlanUsageCounters(activePlan.id);
+    await clientsRepository.createClientHistory({
+      clientId,
+      actionType: 'client_updated',
+      description: `Reservas fuera de vigencia canceladas (${cancelled} clase${
+        cancelled === 1 ? '' : 's'
+      }).`,
+      metadata: { cancelled, details, clientPlanId: activePlan.id },
+      performedById: options.adminId || null,
+    });
+  }
+
+  return { cancelled, details };
+}
+
 async function collectRequiredFixedScheduleGaps(clientId, activePlan, recurrings, today) {
   const planStart = toDateString(activePlan.startDate);
   const planEnd = toDateString(activePlan.endDate);
@@ -397,11 +502,14 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
       filled: 0,
       released: 0,
       quotaReleased: 0,
+      cleaned: 0,
       gapsRemaining: 0,
       unfilledDates: [],
       blocked: [],
     };
   }
+
+  const cleanup = await cleanupFutureReservationsOutsideActivePlan(clientId, activePlan, options);
 
   await generateClasses();
 
@@ -414,6 +522,7 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
       filled: 0,
       released: 0,
       quotaReleased: 0,
+      cleaned: cleanup.cancelled,
       gapsRemaining: 0,
       unfilledDates: [],
       blocked: [],
@@ -572,6 +681,7 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
     filled,
     released,
     quotaReleased: misallocated.released,
+    cleaned: cleanup.cancelled,
     gapsRemaining: unfilled.length,
     unfilledDates: unfilled.map((gap) => gap.classDate),
     blocked,
