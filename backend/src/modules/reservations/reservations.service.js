@@ -155,6 +155,155 @@ async function tryMaterializeRecurringCandidate(
   return { status: 'created' };
 }
 
+const CONSUMING_PLAN_STATUSES = ['pending', 'confirmed', 'completed', 'no_show'];
+
+function reservationKeepsPlanDayScore(reservation, expectedTemplateId) {
+  let score = 0;
+
+  if (
+    expectedTemplateId &&
+    reservation.scheduleTemplateId === expectedTemplateId &&
+    reservation.bookingType === 'recurring'
+  ) {
+    score += 1000;
+  } else if (reservation.bookingType !== 'recurring') {
+    score += 500;
+  } else if (
+    expectedTemplateId &&
+    reservation.scheduleTemplateId === expectedTemplateId
+  ) {
+    score += 300;
+  }
+
+  if (reservation.status === 'completed') {
+    score += 20;
+  } else if (reservation.status === 'confirmed' || reservation.status === 'pending') {
+    score += 15;
+  }
+
+  return score;
+}
+
+/**
+ * Libera cupo mal contado tras cambiar horarios fijos:
+ * - dos clases el mismo día (tarde + mañana),
+ * - turnos viejos que ya no coinciden con el fijo activo.
+ */
+async function releaseMisallocatedPlanUsage(clientId, activePlan, recurrings, options = {}) {
+  const planStart = toDateString(activePlan.startDate);
+  const planEnd = toDateString(activePlan.endDate);
+
+  if (!planStart || !planEnd) {
+    return { released: 0, details: [] };
+  }
+
+  const activeTemplateByDay = new Map();
+  for (const recurring of recurrings) {
+    if (recurring.status === 'active') {
+      activeTemplateByDay.set(Number(recurring.dayOfWeek), Number(recurring.scheduleTemplateId));
+    }
+  }
+
+  const reservations = await reservationsRepository.listConsumingReservationsInPlanRange(
+    clientId,
+    activePlan.id,
+    planStart,
+    planEnd
+  );
+
+  const byDate = new Map();
+  for (const reservation of reservations) {
+    const classDate = toDateString(reservation.classDate);
+    if (!byDate.has(classDate)) {
+      byDate.set(classDate, []);
+    }
+    byDate.get(classDate).push(reservation);
+  }
+
+  const toRelease = [];
+  const releaseIds = new Set();
+
+  for (const [classDate, dayReservations] of byDate.entries()) {
+    const dayOfWeek = getIsoDayOfWeek(classDate);
+    const expectedTemplateId = activeTemplateByDay.get(dayOfWeek) || null;
+
+    const sorted = [...dayReservations].sort(
+      (a, b) =>
+        reservationKeepsPlanDayScore(b, expectedTemplateId) -
+        reservationKeepsPlanDayScore(a, expectedTemplateId)
+    );
+
+    const keeper = sorted[0];
+
+    for (const reservation of sorted) {
+      const duplicateSameDay = reservation.id !== keeper.id;
+      const wrongFixedTemplate =
+        reservation.bookingType === 'recurring' &&
+        expectedTemplateId &&
+        reservation.scheduleTemplateId !== expectedTemplateId;
+
+      if (duplicateSameDay || wrongFixedTemplate) {
+        if (!releaseIds.has(reservation.id)) {
+          releaseIds.add(reservation.id);
+          toRelease.push({
+            reservation,
+            reason: duplicateSameDay ? 'duplicate_day' : 'wrong_template',
+          });
+        }
+      }
+    }
+  }
+
+  let released = 0;
+  const details = [];
+
+  for (const item of toRelease) {
+    const { reservation, reason } = item;
+
+    try {
+      if (['pending', 'confirmed'].includes(reservation.status)) {
+        await cancelReservation({
+          reservationId: reservation.id,
+          cancelledBy: 'admin',
+          cancellationReason: FIXED_SCHEDULE_REBALANCE_REASON,
+          adminId: options.adminId || null,
+          deferRecurringProcess: true,
+          forceReturnQuota: true,
+          silent: true,
+        });
+      } else {
+        await reservationsRepository.updateReservation(reservation.id, {
+          consumesPlan: false,
+        });
+      }
+
+      released += 1;
+      details.push({
+        date: reservation.classDate,
+        time: reservation.startTime,
+        reason,
+      });
+    } catch {
+      // Continuar con el resto.
+    }
+  }
+
+  if (released > 0) {
+    await refreshPlanUsageCounters(activePlan.id);
+    await clientsRepository.createClientHistory({
+      clientId,
+      actionType: 'client_updated',
+      description: `Cupo corregido tras cambio de horario fijo (${released} clase${
+        released === 1 ? '' : 's'
+      } liberada${released === 1 ? '' : 's'} del abono).`,
+      metadata: { released, details, clientPlanId: activePlan.id },
+      performedById: options.adminId || null,
+    });
+  }
+
+  return { released, details };
+}
+
 async function collectRequiredFixedScheduleGaps(clientId, activePlan, recurrings, today) {
   const planStart = toDateString(activePlan.startDate);
   const planEnd = toDateString(activePlan.endDate);
@@ -191,7 +340,11 @@ async function collectRequiredFixedScheduleGaps(clientId, activePlan, recurrings
         classItem.id
       );
 
-      if (existing && ACTIVE_RESERVATION_STATUSES.includes(existing.status)) {
+      if (
+        existing &&
+        existing.consumesPlan &&
+        CONSUMING_PLAN_STATUSES.includes(existing.status)
+      ) {
         continue;
       }
 
@@ -240,19 +393,35 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
   const activePlan = await plansRepository.findActiveClientPlan(clientId);
 
   if (!activePlan) {
-    return { filled: 0, released: 0, gapsRemaining: 0, unfilledDates: [], blocked: [] };
+    return {
+      filled: 0,
+      released: 0,
+      quotaReleased: 0,
+      gapsRemaining: 0,
+      unfilledDates: [],
+      blocked: [],
+    };
   }
 
   await generateClasses();
-  await refreshPlanUsageCounters(activePlan.id);
 
   const recurrings = (await reservationsRepository.listRecurringByClient(clientId)).filter(
     (item) => item.status === 'active'
   );
 
   if (!recurrings.length) {
-    return { filled: 0, released: 0, gapsRemaining: 0, unfilledDates: [], blocked: [] };
+    return {
+      filled: 0,
+      released: 0,
+      quotaReleased: 0,
+      gapsRemaining: 0,
+      unfilledDates: [],
+      blocked: [],
+    };
   }
+
+  const misallocated = await releaseMisallocatedPlanUsage(clientId, activePlan, recurrings, options);
+  await refreshPlanUsageCounters(activePlan.id);
 
   let filled = 0;
   let released = 0;
@@ -402,6 +571,7 @@ export async function reconcileFixedScheduleCoverage(clientId, options = {}) {
   return {
     filled,
     released,
+    quotaReleased: misallocated.released,
     gapsRemaining: unfilled.length,
     unfilledDates: unfilled.map((gap) => gap.classDate),
     blocked,

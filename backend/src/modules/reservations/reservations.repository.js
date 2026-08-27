@@ -30,6 +30,8 @@ function mapReservationRow(row) {
     createdByAdminId: row.created_by_admin_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    scheduleTemplateId:
+      row.schedule_template_id != null ? Number(row.schedule_template_id) : null,
   };
 }
 
@@ -247,6 +249,31 @@ export async function countClientQuotaReturningCancellations(clientPlanId, conne
   );
 
   return Number(rows[0]?.total || 0);
+}
+
+export async function listConsumingReservationsInPlanRange(
+  clientId,
+  clientPlanId,
+  fromDate,
+  toDate,
+  connection = pool
+) {
+  const [rows] = await connection.query(
+    `${reservationSelect},
+            gc.schedule_template_id
+     FROM class_reservations r
+     INNER JOIN clients c ON c.id = r.client_id
+     INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
+     WHERE r.client_id = ?
+       AND r.client_plan_id = ?
+       AND r.consumes_plan = 1
+       AND r.status IN ('pending', 'confirmed', 'completed', 'no_show')
+       AND gc.class_date BETWEEN ? AND ?
+     ORDER BY gc.class_date ASC, gc.start_time ASC`,
+    [clientId, clientPlanId, fromDate, toDate]
+  );
+
+  return rows.map((row) => mapReservationRow(row));
 }
 
 export async function listConsumingReservationDatesInRange(
