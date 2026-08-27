@@ -292,6 +292,7 @@ export function ClientReservationsSection({ clientId }) {
       const created = Number(result?.processing?.created || 0);
       const filled = Number(result?.reconciliation?.filled || 0);
       const released = Number(result?.reconciliation?.released || 0);
+      const quotaReleased = Number(result?.reconciliation?.quotaReleased || 0);
       const gapsRemaining = Number(result?.reconciliation?.gapsRemaining || 0);
       const unfilledDates = result?.reconciliation?.unfilledDates || [];
       const totalCreated = created + filled;
@@ -303,21 +304,32 @@ export function ClientReservationsSection({ clientId }) {
             : '';
         setFeedback({
           type: 'error',
-          message: `Quedaron ${gapsRemaining} clase${gapsRemaining === 1 ? '' : 's'} sin generar${datesLabel}. Revisá el cupo del plan en la pestaña Plan o si la clienta canceló esas fechas.`,
+          message: `Quedaron ${gapsRemaining} clase${gapsRemaining === 1 ? '' : 's'} sin generar${datesLabel}. Revisá el cupo del plan en la pestaña Plan.`,
         });
         return;
       }
 
-      if (totalCreated > 0 || released > 0) {
+      if (totalCreated > 0 || released > 0 || quotaReleased > 0) {
         const parts = [];
+        if (quotaReleased > 0) {
+          parts.push(
+            `se liberó cupo de ${quotaReleased} clase${quotaReleased === 1 ? '' : 's'} duplicada${
+              quotaReleased === 1 ? '' : 's'
+            } o de turno viejo`
+          );
+        }
         if (totalCreated > 0) {
           parts.push(
-            `se ${totalCreated === 1 ? 'generó' : 'generaron'} ${totalCreated} reserva${totalCreated === 1 ? '' : 's'}`
+            `se ${totalCreated === 1 ? 'generó' : 'generaron'} ${totalCreated} reserva${
+              totalCreated === 1 ? '' : 's'
+            }`
           );
         }
         if (released > 0) {
           parts.push(
-            `se ${released === 1 ? 'liberó' : 'liberaron'} ${released} reserva${released === 1 ? '' : 's'} mal ubicada${released === 1 ? '' : 's'}`
+            `se ${released === 1 ? 'ajustó' : 'ajustaron'} ${released} reserva${
+              released === 1 ? '' : 's'
+            } mal ubicada${released === 1 ? '' : 's'}`
           );
         }
         setFeedback({
