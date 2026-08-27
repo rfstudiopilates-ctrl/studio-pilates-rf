@@ -81,7 +81,8 @@ const reservationSelect = `
          c.phone AS client_phone,
          gc.class_date,
          gc.start_time,
-         gc.end_time
+         gc.end_time,
+         gc.schedule_template_id
   FROM class_reservations r
   INNER JOIN clients c ON c.id = r.client_id
   INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
@@ -259,11 +260,7 @@ export async function listConsumingReservationsInPlanRange(
   connection = pool
 ) {
   const [rows] = await connection.query(
-    `${reservationSelect},
-            gc.schedule_template_id
-     FROM class_reservations r
-     INNER JOIN clients c ON c.id = r.client_id
-     INNER JOIN generated_classes gc ON gc.id = r.generated_class_id
+    `${reservationSelect}
      WHERE r.client_id = ?
        AND r.client_plan_id = ?
        AND r.consumes_plan = 1
