@@ -293,6 +293,7 @@ export function ClientReservationsSection({ clientId }) {
       const filled = Number(result?.reconciliation?.filled || 0);
       const released = Number(result?.reconciliation?.released || 0);
       const quotaReleased = Number(result?.reconciliation?.quotaReleased || 0);
+      const cleaned = Number(result?.reconciliation?.cleaned || 0);
       const gapsRemaining = Number(result?.reconciliation?.gapsRemaining || 0);
       const unfilledDates = result?.reconciliation?.unfilledDates || [];
       const totalCreated = created + filled;
@@ -309,8 +310,15 @@ export function ClientReservationsSection({ clientId }) {
         return;
       }
 
-      if (totalCreated > 0 || released > 0 || quotaReleased > 0) {
+      if (totalCreated > 0 || released > 0 || quotaReleased > 0 || cleaned > 0) {
         const parts = [];
+        if (cleaned > 0) {
+          parts.push(
+            `se ${cleaned === 1 ? 'canceló' : 'cancelaron'} ${cleaned} reserva${
+              cleaned === 1 ? '' : 's'
+            } fuera de vigencia del plan`
+          );
+        }
         if (quotaReleased > 0) {
           parts.push(
             `se liberó cupo de ${quotaReleased} clase${quotaReleased === 1 ? '' : 's'} duplicada${
