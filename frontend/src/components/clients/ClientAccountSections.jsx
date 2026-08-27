@@ -37,7 +37,7 @@ function getUsagePercent(used, limit) {
   return Math.min(100, Math.round((Number(used || 0) / Number(limit)) * 100));
 }
 
-function UsageMeter({ label, used, limit, remaining }) {
+function UsageMeter({ label, used, limit, remaining, limitHint = null }) {
   const percent = getUsagePercent(used, limit);
 
   return (
@@ -50,6 +50,7 @@ function UsageMeter({ label, used, limit, remaining }) {
         {used ?? 0}
         <span className="text-sm font-medium text-text-muted"> / {limit ?? 0}</span>
       </p>
+      {limitHint ? <p className="mt-1 text-xs text-text-muted">{limitHint}</p> : null}
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-muted">
         <div
           className="h-full rounded-full bg-text transition-all duration-300"
@@ -337,8 +338,16 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
               <UsageMeter
                 label="Esta semana"
                 used={activePlan.weeklyClassesUsed}
-                limit={activePlan.weeklyClassesLimit}
+                limit={
+                  activePlan.availability?.effectiveWeeklyLimit ??
+                  activePlan.weeklyClassesLimit
+                }
                 remaining={activePlan.availability?.weeklyRemaining}
+                limitHint={
+                  Number(activePlan.availability?.catchUpSlots || 0) > 0
+                    ? `base ${activePlan.weeklyClassesLimit} + ${activePlan.availability.catchUpSlots} recup.`
+                    : null
+                }
               />
               <UsageMeter
                 label="Cupo del plan"
@@ -364,10 +373,12 @@ export function ClientPlanSection({ clientId, client, onPlanAssigned }) {
               <div className="space-y-3">
                 <Alert variant="info">
                   Tiene {activePlan.availability?.catchUpSlots || activePlan.catchUpSlots} clase(s) de
-                  recuperación (catch-up): el plan esperaba{' '}
-                  {activePlan.availability?.expectedUsed ?? '—'} usadas a esta altura y lleva{' '}
-                  {activePlan.monthlyClassesUsed}. Eso le permite reservar días extra sin haber
-                  cancelado. Detalle en el tab Historial.
+                  recuperación (catch-up) esta semana: según el ritmo del plan debería haber usado{' '}
+                  {activePlan.availability?.expectedUsed ?? '—'} hasta el domingo de esta semana, pero
+                  tiene {activePlan.availability?.usedForCatchUp ?? '—'} reservada
+                  {Number(activePlan.availability?.usedForCatchUp || 0) === 1 ? '' : 's'} en ese
+                  período. Eso le permite 1 reserva extra esta semana, no es por cancelación. Detalle
+                  en el tab Historial.
                 </Alert>
                 <Button
                   type="button"

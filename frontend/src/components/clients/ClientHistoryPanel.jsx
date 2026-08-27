@@ -194,6 +194,9 @@ export default function ClientHistoryPanel({
   );
   const catchUpSlots = Number(availability.catchUpSlots || activePlan?.catchUpSlots || 0);
   const expectedUsed = Number(availability.expectedUsed || activePlan?.expectedUsed || 0);
+  const usedForCatchUp = Number(
+    availability.usedForCatchUp || activePlan?.usedForCatchUp || 0
+  );
   const weeklyUsed = Number(availability.weeklyUsed ?? activePlan?.weeklyClassesUsed ?? 0);
   const effectiveWeekly = Number(
     availability.effectiveWeeklyLimit || weeklyLimit + catchUpSlots
@@ -266,7 +269,7 @@ export default function ClientHistoryPanel({
                 </p>
                 <p className="mt-1 text-lg font-semibold text-text">{catchUpSlots}</p>
                 <p className="text-xs text-text-muted">
-                  Esperadas {expectedUsed} − usadas {monthlyUsed}
+                  Esperadas {expectedUsed} − reservadas {usedForCatchUp} (hasta fin de semana)
                 </p>
               </div>
               <div className="rounded-xl border border-border bg-surface-muted/40 p-3">
@@ -287,11 +290,12 @@ export default function ClientHistoryPanel({
               {catchUpSlots > 0 ? (
                 <p>
                   Tiene <span className="font-semibold">{catchUpSlots} clase(s) de recuperación</span>{' '}
-                  porque, según el ritmo del plan ({weeklyLimit}/semana), debería haber usado{' '}
-                  <span className="font-semibold">{expectedUsed}</span> hasta hoy, pero solo usó{' '}
-                  <span className="font-semibold">{monthlyUsed}</span>. Ese saldo le permite reservar
-                  un día estándar (u otro) aunque no haya cancelado: es cupo no usado de semanas
-                  anteriores o por haber empezado el plan más tarde en el ciclo.
+                  esta semana porque, según el ritmo del plan ({weeklyLimit}/semana), debería tener{' '}
+                  <span className="font-semibold">{expectedUsed}</span> reservas hasta el domingo de
+                  esta semana, pero tiene{' '}
+                  <span className="font-semibold">{usedForCatchUp}</span>. Ese saldo habilita una
+                  reserva estándar extra esta semana (no es por cancelación). El cupo total del abono
+                  sigue siendo {monthlyUsed}/{monthlyLimit}.
                 </p>
               ) : (
                 <p>
