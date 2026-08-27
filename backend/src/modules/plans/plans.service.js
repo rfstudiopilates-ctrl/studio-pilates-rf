@@ -569,9 +569,16 @@ export async function consumeCatchUpSlots(clientPlanId, payload, adminId) {
 
   const monthlyLimit = Number(clientPlan.monthlyClassesLimit || 0);
   const monthlyUsed = Number(syncedBefore?.monthlyClassesUsed || 0);
-  if (monthlyUsed + quantity > monthlyLimit) {
+  const monthlyRemaining = Math.max(0, monthlyLimit - monthlyUsed);
+  if (monthlyRemaining <= 0) {
     throw createAppError(
-      'El ajuste supera el cupo total del abono. Revisá la cantidad.',
+      'El cupo total del abono ya está completo. No hay recuperación pendiente: las clases del horario fijo ya cubrieron todo el plan.',
+      400
+    );
+  }
+  if (quantity > monthlyRemaining) {
+    throw createAppError(
+      `Solo quedan ${monthlyRemaining} clase${monthlyRemaining === 1 ? '' : 's'} libre${monthlyRemaining === 1 ? '' : 's'} en el abono. No podés descontar ${quantity}.`,
       400
     );
   }

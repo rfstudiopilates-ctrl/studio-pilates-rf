@@ -109,7 +109,10 @@ function buildAvailability({
   const expectedUsed = getExpectedPlanUsageByDate(clientPlan, asOfDate);
   const catchUpBase =
     usedForCatchUp != null ? Number(usedForCatchUp) : Number(monthlyUsed);
-  const catchUpSlots = Math.max(0, expectedUsed - catchUpBase);
+  let catchUpSlots = Math.max(0, expectedUsed - catchUpBase);
+  // No mostrar catch-up si el abono ya no tiene cupo mensual libre (evita "1 libre" fantasma
+  // cuando los fijos futuros ya consumieron todo el plan).
+  catchUpSlots = Math.min(catchUpSlots, Math.max(0, monthlyLimit - monthlyUsed));
   const effectiveWeeklyLimit = weeklyLimit + catchUpSlots;
   const weeklyRemaining = effectiveWeeklyLimit - weeklyUsed;
   const monthlyRemaining = monthlyLimit - monthlyUsed;
@@ -121,6 +124,7 @@ function buildAvailability({
     monthlyRemaining: Math.max(0, monthlyRemaining),
     catchUpSlots,
     expectedUsed,
+    usedForCatchUp: catchUpBase,
     effectiveWeeklyLimit,
     canBook: monthlyRemaining > 0 && weeklyRemaining > 0,
   };
@@ -168,6 +172,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
       monthlyRemaining: 0,
       catchUpSlots: 0,
       expectedUsed: 0,
+      usedForCatchUp: 0,
       effectiveWeeklyLimit: 0,
       canBook: false,
     };
@@ -190,6 +195,7 @@ export async function getAvailabilityForClassDate(clientPlan, classDate, connect
       monthlyRemaining: 0,
       catchUpSlots: 0,
       expectedUsed: 0,
+      usedForCatchUp: 0,
       effectiveWeeklyLimit: 0,
       canBook: false,
     };
@@ -293,6 +299,7 @@ export async function refreshPlanUsageCounters(clientPlanId, connection = null) 
     monthResetAt: planStart,
     catchUpSlots: availability.catchUpSlots,
     expectedUsed: availability.expectedUsed,
+    usedForCatchUp: availability.usedForCatchUp,
     cancellationsUsed,
     cancellationsLimit: MAX_PLAN_QUOTA_CANCELLATIONS,
   };
