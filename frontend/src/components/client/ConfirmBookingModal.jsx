@@ -6,10 +6,8 @@ import { formatDateDisplay, normalizeDateInput } from '../../lib/dates';
 export default function ConfirmBookingModal({
   open,
   classItem,
-  mode = 'book',
   requestMode = false,
   isSubmitting = false,
-  fromReservation = null,
   onClose,
   onConfirm,
 }) {
@@ -18,25 +16,14 @@ export default function ConfirmBookingModal({
   }
 
   const classDate = normalizeDateInput(classItem.classDate);
-  const isChange = mode === 'change';
 
-  const title = isChange
-    ? 'Confirmar cambio'
-    : requestMode
-      ? 'Confirmar solicitud'
-      : 'Confirmar reserva';
+  const title = requestMode ? 'Confirmar solicitud' : 'Confirmar reserva';
 
-  const description = isChange
-    ? 'Vas a pedir cambiar tu clase a este horario. El estudio lo tiene que aprobar.'
-    : requestMode
-      ? 'Vas a pedir este turno. El estudio lo confirma cuando se pague la seña.'
-      : 'Vas a reservar este turno con tu plan activo.';
+  const description = requestMode
+    ? 'Vas a pedir este turno. El estudio lo confirma cuando se pague la seña.'
+    : 'Vas a reservar este turno con tu plan activo.';
 
-  const confirmLabel = isChange
-    ? 'Sí, pedir cambio'
-    : requestMode
-      ? 'Sí, pedir turno'
-      : 'Sí, reservar';
+  const confirmLabel = requestMode ? 'Sí, pedir turno' : 'Sí, reservar';
 
   return (
     <Modal open={open} onClose={isSubmitting ? () => {} : onClose} title={title} description={description} size="md">
@@ -48,7 +35,7 @@ export default function ConfirmBookingModal({
             </div>
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-                {isChange ? 'Nuevo horario' : 'Turno elegido'}
+                Turno elegido
               </p>
               <p className="mt-1 text-base font-semibold capitalize text-text">
                 {formatDateDisplay(classDate)}
@@ -61,18 +48,7 @@ export default function ConfirmBookingModal({
           </div>
         </div>
 
-        {isChange && fromReservation ? (
-          <div className="rounded-2xl border border-border bg-white px-4 py-3.5 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              Horario actual
-            </p>
-            <p className="mt-1 capitalize text-text">
-              {formatDateDisplay(fromReservation.classDate)} · {fromReservation.startTime}
-            </p>
-          </div>
-        ) : null}
-
-        {requestMode && !isChange ? (
+        {requestMode ? (
           <p className="rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2.5 text-xs text-text">
             El cupo queda aparte mientras el estudio gestiona la seña. Podés cancelar la
             solicitud si todavía no fue confirmada.

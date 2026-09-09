@@ -1,12 +1,6 @@
 import { z } from 'zod';
 import { SCHEDULE_CHANGE_STATUSES } from './schedule-changes.constants.js';
 
-export const createScheduleChangeSchema = z.object({
-  reservationId: z.coerce.number().int().positive(),
-  toGeneratedClassId: z.coerce.number().int().positive(),
-  reason: z.string().max(500).optional(),
-});
-
 export const rejectScheduleChangeSchema = z.object({
   adminNotes: z.string().max(500).optional(),
 });

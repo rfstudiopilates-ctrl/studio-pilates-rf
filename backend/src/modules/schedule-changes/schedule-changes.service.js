@@ -1,10 +1,6 @@
 import { pool } from '../../config/database.js';
 import { createAppError } from '../../utils/AppError.js';
-import {
-  canCancelClass,
-  getHoursUntilClass,
-} from '../../utils/dates.js';
-import { getSettings } from '../settings/settings.repository.js';
+import { getHoursUntilClass } from '../../utils/dates.js';
 import * as clientsRepository from '../clients/clients.repository.js';
 import * as classesRepository from '../classes/classes.repository.js';
 import * as plansRepository from '../plans/plans.repository.js';
@@ -15,7 +11,6 @@ import { SCHEDULE_CHANGE_VACATED_REASON } from '../reservations/reservations.con
 import * as scheduleChangesRepository from './schedule-changes.repository.js';
 import {
   notifyScheduleChangeApproved,
-  notifyScheduleChangeRequested,
   runNotificationSafely,
 } from '../notifications/notifications.dispatcher.js';
 
@@ -119,131 +114,6 @@ async function rematerializeClientFixedSchedules(clientId) {
   } catch {
     // El cron/job posterior puede completar; no fallar el approve.
   }
-}
-
-export async function createScheduleChangeRequest({
-  clientId,
-  reservationId,
-  toGeneratedClassId,
-  reason,
-}) {
-  const connection = await pool.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const reservation = await reservationsRepository.findReservationById(reservationId, connection);
-
-    if (!reservation || reservation.clientId !== clientId) {
-      throw createAppError('Reserva no encontrada', 404);
-    }
-
-    if (reservation.status !== 'confirmed') {
-      throw createAppError('Solo podés solicitar cambio de reservas confirmadas', 400);
-    }
-
-    const settings = await getSettings();
-
-    if (
-      !canCancelClass(
-        reservation.classDate,
-        reservation.startTime,
-        settings.cancellationHours
-      )
-    ) {
-      throw createAppError(
-        `Solo podés solicitar cambios con al menos ${settings.cancellationHours} horas de anticipación`,
-        400
-      );
-    }
-
-    if (reservation.generatedClassId === toGeneratedClassId) {
-      throw createAppError('Debés elegir una clase distinta a la actual', 400);
-    }
-
-    await validateTargetClassForChange(toGeneratedClassId, connection);
-
-    const pending = await scheduleChangesRepository.findPendingByReservationId(
-      reservationId,
-      connection
-    );
-    const reusable =
-      pending ||
-      (await scheduleChangesRepository.findReusableByReservationId(reservationId, connection));
-
-    const reopenPayload = {
-      status: 'pending',
-      fromGeneratedClassId: reservation.generatedClassId,
-      toGeneratedClassId,
-      reason: reason || reusable?.reason || null,
-      adminNotes: null,
-      reviewedByAdminId: null,
-      reviewedAt: null,
-    };
-
-    const request = reusable
-      ? await scheduleChangesRepository.updateScheduleChange(reusable.id, reopenPayload, connection)
-      : await scheduleChangesRepository.createScheduleChangeRequest(
-          {
-            reservationId,
-            clientId,
-            fromGeneratedClassId: reservation.generatedClassId,
-            toGeneratedClassId,
-            reason,
-          },
-          connection
-        );
-
-    const wasResubmit = Boolean(reusable);
-
-    await clientsRepository.createClientHistory({
-      clientId,
-      actionType: 'client_updated',
-      description: wasResubmit
-        ? 'Solicitud de cambio de horario reenviada'
-        : 'Solicitud de cambio de horario creada',
-      metadata: {
-        scheduleChangeRequestId: request.id,
-        fromClassId: reservation.generatedClassId,
-        toClassId: toGeneratedClassId,
-        resubmitted: wasResubmit,
-        previousStatus: reusable?.status || null,
-      },
-      performedByType: 'client',
-      performedById: clientId,
-      connection,
-    });
-
-    await connection.commit();
-
-    runNotificationSafely(
-      notifyScheduleChangeRequested({
-        request,
-        clientName: request.clientName,
-      })
-    );
-
-    return request;
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-}
-
-export async function cancelScheduleChangeRequest(id, clientId) {
-  const request = await scheduleChangesRepository.findScheduleChangeById(id);
-
-  if (!request || request.clientId !== clientId) {
-    throw createAppError('Solicitud no encontrada', 404);
-  }
-
-  if (request.status !== 'pending') {
-    throw createAppError('Solo podés cancelar solicitudes pendientes', 400);
-  }
-
-  return scheduleChangesRepository.updateScheduleChange(id, { status: 'cancelled' });
 }
 
 export async function approveScheduleChangeRequest(id, adminId, payload = {}) {
@@ -467,10 +337,6 @@ export async function adminReassignReservation({
 
 export async function listScheduleChanges(query) {
   return scheduleChangesRepository.listScheduleChanges(query);
-}
-
-export async function getMyScheduleChanges(clientId, query) {
-  return scheduleChangesRepository.listScheduleChanges({ ...query, clientId });
 }
 
 export async function getScheduleChangeById(id) {

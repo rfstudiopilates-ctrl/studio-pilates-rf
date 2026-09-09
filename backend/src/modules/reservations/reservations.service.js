@@ -1411,7 +1411,7 @@ export async function cancelReservation({
 
       if (cancellationsUsed >= MAX_PLAN_QUOTA_CANCELLATIONS) {
         throw createAppError(
-          `Alcanzaste el máximo de ${MAX_PLAN_QUOTA_CANCELLATIONS} cancelaciones con devolución de cupo en este abono. Si necesitás cambiar de día, pedí un cambio de horario o contactá al estudio.`,
+          `Alcanzaste el máximo de ${MAX_PLAN_QUOTA_CANCELLATIONS} cancelaciones con devolución de cupo en este abono. Contactá al estudio si necesitás ayuda.`,
           400
         );
       }

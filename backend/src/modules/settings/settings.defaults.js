@@ -20,7 +20,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS = {
     newReservation: true,
     pendingRequest: true,
     cancellation: true,
-    scheduleChange: true,
   },
   client: {
     reservationApproved: true,
@@ -107,13 +106,12 @@ export const NOTIFICATION_FIELDS = {
     { key: 'newReservation', label: 'Nueva reserva' },
     { key: 'pendingRequest', label: 'Solicitud pendiente' },
     { key: 'cancellation', label: 'Cancelación' },
-    { key: 'scheduleChange', label: 'Cambio de horario' },
   ],
   client: [
     { key: 'reservationApproved', label: 'Reserva aprobada' },
     { key: 'reminder24h', label: 'Recordatorio 24 h antes' },
     { key: 'cancellation', label: 'Cancelación' },
-    { key: 'scheduleChangeApproved', label: 'Cambio de horario aprobado' },
+    { key: 'scheduleChangeApproved', label: 'Turno reasignado por el estudio' },
     { key: 'expirationNotice', label: 'Aviso de vencimiento' },
     { key: 'planCancelled', label: 'Plan cancelado' },
   ],

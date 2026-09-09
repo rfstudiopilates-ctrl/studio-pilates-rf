@@ -352,7 +352,7 @@ export default function ClientDashboardPage() {
         <InstallPwaBanner />
         <PushNotificationBanner
           title="Activá avisos en este celular"
-          description="Así te enterás al instante cuando confirmen tu solicitud de turno, te cancelen una clase o haya un cambio de horario."
+          description="Así te enterás al instante cuando confirmen tu solicitud de turno o te cancelen una clase."
         />
 
         <AccountBalanceCard

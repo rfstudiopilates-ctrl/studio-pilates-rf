@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import BookingResultModal from '../../components/client/BookingResultModal';
 import ClientLayout from '../../components/client/ClientLayout';
 import ClientWeekAvailability from '../../components/client/ClientWeekAvailability';
@@ -12,7 +12,6 @@ import {
   RESERVATION_STATUS_LABELS,
 } from '../../constants/reservations';
 import { DAY_OF_WEEK_LABELS } from '../../constants/schedules';
-import { SCHEDULE_CHANGE_STATUS_LABELS } from '../../constants/scheduleChanges';
 import { useClassesAvailability } from '../../hooks/useClasses';
 import { useMyActivePlan } from '../../hooks/usePlans';
 import {
@@ -22,11 +21,6 @@ import {
   useMyRecurring,
   useMyReservations,
 } from '../../hooks/useReservations';
-import {
-  useCancelScheduleChange,
-  useCreateScheduleChange,
-  useMyScheduleChanges,
-} from '../../hooks/useScheduleChanges';
 import {
   addDaysToDate,
   formatDateDisplay,
@@ -69,54 +63,7 @@ function getStatusBadgeClass(status) {
   return 'bg-emerald-50 text-emerald-800 border-emerald-100';
 }
 
-function PendingChangesSection() {
-  const { data, isLoading } = useMyScheduleChanges({ limit: 20 });
-  const cancelChange = useCancelScheduleChange();
-  const items = (data?.items || []).filter((item) => item.status === 'pending');
-
-  if (isLoading || items.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
-      <h2 className="text-sm font-semibold text-text">Cambios pendientes</h2>
-      <p className="mt-0.5 text-xs text-text-muted">
-        El estudio tiene que aprobar estos cambios de horario.
-      </p>
-      <div className="mt-3 space-y-2">
-        {items.map((request) => (
-          <div
-            key={request.id}
-            className="rounded-xl border border-amber-100 bg-white px-3.5 py-3 text-sm"
-          >
-            <p className="font-medium text-text">
-              {SCHEDULE_CHANGE_STATUS_LABELS[request.status]}
-            </p>
-            <p className="mt-0.5 text-xs text-text-muted">
-              {formatDateDisplay(request.fromClass?.classDate)} {request.fromClass?.startTime} →{' '}
-              {formatDateDisplay(request.toClass?.classDate)} {request.toClass?.startTime}
-            </p>
-            <Button
-              variant="ghost"
-              className="mt-2 h-8 px-0 text-xs text-danger"
-              onClick={() => {
-                if (window.confirm('¿Cancelar esta solicitud de cambio?')) {
-                  cancelChange.mutate(request.id);
-                }
-              }}
-              isLoading={cancelChange.isPending}
-            >
-              Cancelar solicitud
-            </Button>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function FixedSchedulesSection({ onChangeHint }) {
+function FixedSchedulesSection({ onViewReservations }) {
   const { data: recurring = [], isLoading } = useMyRecurring();
   const activeItems = recurring.filter(
     (item) => item.status === 'active' || item.status === 'paused'
@@ -136,7 +83,7 @@ function FixedSchedulesSection({ onChangeHint }) {
           <h2 className="text-base font-semibold text-text">Mis horarios fijos</h2>
           <p className="mt-0.5 text-sm text-text-muted">
             Estas clases se reservan solas cada semana. Si necesitás mover una fecha puntual,
-            usá “Cambiar horario” en esa reserva.
+            contactá al estudio.
           </p>
         </div>
       </div>
@@ -157,10 +104,10 @@ function FixedSchedulesSection({ onChangeHint }) {
         ))}
       </div>
 
-      {typeof onChangeHint === 'function' ? (
+      {typeof onViewReservations === 'function' ? (
         <button
           type="button"
-          onClick={onChangeHint}
+          onClick={onViewReservations}
           className="mt-4 text-sm font-medium text-text underline-offset-2 hover:underline"
         >
           Ver mis próximas clases
@@ -177,7 +124,6 @@ export default function ClientReservationsPage() {
   const myReservationsListRef = useRef(null);
 
   const [weekOffset, setWeekOffset] = useState(0);
-  const [changingReservation, setChangingReservation] = useState(null);
   const [selectedCreditId, setSelectedCreditId] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [bookingResult, setBookingResult] = useState(null);
@@ -209,7 +155,6 @@ export default function ClientReservationsPage() {
 
   const createReservation = useCreateMyReservation();
   const cancelReservation = useCancelMyReservation();
-  const createChange = useCreateScheduleChange();
 
   const myReservations = useMemo(
     () =>
@@ -217,7 +162,6 @@ export default function ClientReservationsPage() {
         if (!['pending', 'confirmed'].includes(item.status)) return false;
         const dateKey = normalizeDateInput(item.classDate);
         if (!dateKey) return false;
-        // Ocultar apenas termina (no solo al cambiar el día).
         return !isClassEnded(dateKey, item.endTime);
       }),
     [reservationsData]
@@ -253,8 +197,6 @@ export default function ClientReservationsPage() {
     setWeekOffset(nextOffset === 1 ? 1 : 0);
   }
 
-  // monthlyRemaining > 0 permite recuperar en otra semana aunque esta esté llena.
-  // El backend valida el cupo semanal por fecha al reservar.
   const hasPlanQuotaLeft =
     Boolean(activePlan) && Number(activePlan?.availability?.monthlyRemaining || 0) > 0;
   const canBookWithPlan =
@@ -265,21 +207,12 @@ export default function ClientReservationsPage() {
   const canBook = canBookWithPlan || canRequestWithoutPlan;
 
   const hasReservations = myReservations.length > 0;
-  const calendarMode = changingReservation ? 'change' : 'book';
   const canStillBookMore =
     Boolean(activePlan?.availability?.canBook) ||
     hasPlanQuotaLeft ||
     recoveryCredits.length > 0 ||
     (canRequestWithoutPlan && !hasReservations);
-  // Si ya tiene reservas y no le quedan cupos (ni créditos), ocultamos el alta.
-  // En cambio de horario siempre se muestra. Sin plan puede pedir 1 turno a la vez.
-  const showBookingSection =
-    Boolean(changingReservation) || canStillBookMore || !hasReservations;
-
-  useEffect(() => {
-    if (!changingReservation) return;
-    weekListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [changingReservation]);
+  const showBookingSection = canStillBookMore || !hasReservations;
 
   function clearFeedbackLater() {
     window.setTimeout(() => setFeedback(null), 5000);
@@ -293,7 +226,7 @@ export default function ClientReservationsPage() {
       setBookingResult({
         type: 'error',
         message:
-          'Ya tenés una clase reservada para ese día. Cancelala primero si querés cambiar de horario.',
+          'Ya tenés una clase reservada para ese día. Cancelala primero si querés elegir otro horario.',
         classItem: null,
       });
       return;
@@ -332,34 +265,6 @@ export default function ClientReservationsPage() {
     }
   }
 
-  async function handleChangeToClass(classItem) {
-    if (!changingReservation) return;
-
-    setFeedback(null);
-    setSubmittingClassId(classItem.id);
-
-    try {
-      await createChange.mutateAsync({
-        reservationId: changingReservation.id,
-        toGeneratedClassId: classItem.id,
-      });
-      setFeedback({
-        type: 'success',
-        message:
-          'Solicitud de cambio enviada. El estudio la revisará pronto.',
-      });
-      setChangingReservation(null);
-      clearFeedbackLater();
-    } catch (error) {
-      setFeedback({
-        type: 'error',
-        message: getErrorMessage(error, 'No se pudo enviar el cambio de horario.'),
-      });
-    } finally {
-      setSubmittingClassId(null);
-    }
-  }
-
   async function handleCancel(reservation) {
     const isPendingDropIn =
       reservation.status === 'pending' && reservation.bookingType === 'drop_in';
@@ -378,7 +283,7 @@ export default function ClientReservationsPage() {
       setFeedback({
         type: 'error',
         message:
-          'Ya usaste las 5 cancelaciones con devolución de cupo de este abono. Podés pedir un cambio de horario o contactar al estudio.',
+          'Ya usaste las cancelaciones con devolución de cupo de este abono. Contactá al estudio si necesitás ayuda.',
       });
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
@@ -409,9 +314,6 @@ export default function ClientReservationsPage() {
         type: 'success',
         message: `Reserva cancelada.${bankMessage}`,
       });
-      if (changingReservation?.id === reservation.id) {
-        setChangingReservation(null);
-      }
       clearFeedbackLater();
     } catch (error) {
       setFeedback({
@@ -422,36 +324,6 @@ export default function ClientReservationsPage() {
     } finally {
       setCancellingReservationId(null);
     }
-  }
-
-  function startChange(reservation) {
-    const date = normalizeDateInput(reservation.classDate) || today;
-    const reservationWeekStart = getWeekStartDate(date);
-    const nextWeekStart = addDaysToDate(currentWeekStart, 7);
-
-    let nextOffset = 0;
-    if (reservationWeekStart === nextWeekStart) {
-      nextOffset = 1;
-    } else if (reservationWeekStart > nextWeekStart) {
-      nextOffset = 1;
-      setFeedback({
-        type: 'error',
-        message:
-          'Solo podés cambiar a un horario de esta semana o la próxima. Elegí una fecha cercana.',
-      });
-    }
-
-    setChangingReservation(reservation);
-    setWeekOffset(nextOffset);
-    setFeedback({
-      type: 'success',
-      message: 'Elegí el nuevo horario disponible en la lista de la semana.',
-    });
-  }
-
-  function cancelChangeMode() {
-    setChangingReservation(null);
-    setFeedback(null);
   }
 
   function handleSelectClass(classItem) {
@@ -465,16 +337,7 @@ export default function ClientReservationsPage() {
 
   async function handleConfirmPendingSlot() {
     if (!pendingSlot) return;
-
-    const classItem = pendingSlot;
-
-    if (calendarMode === 'change') {
-      await handleChangeToClass(classItem);
-      setPendingSlot(null);
-      return;
-    }
-
-    await handleBook(classItem);
+    await handleBook(pendingSlot);
     setPendingSlot(null);
   }
 
@@ -503,29 +366,8 @@ export default function ClientReservationsPage() {
           </Alert>
         ) : null}
 
-        {changingReservation ? (
-          <section className="rounded-2xl border border-brand-200 bg-brand-50/70 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-text">Cambiando de horario</p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  Desde {formatDateDisplay(changingReservation.classDate)} ·{' '}
-                  {changingReservation.startTime}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                className="h-8 shrink-0 px-2 text-xs"
-                onClick={cancelChangeMode}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </section>
-        ) : null}
-
         <FixedSchedulesSection
-          onChangeHint={() => {
+          onViewReservations={() => {
             myReservationsListRef.current?.scrollIntoView({
               behavior: 'smooth',
               block: 'start',
@@ -559,18 +401,13 @@ export default function ClientReservationsPage() {
               {!canCancelWithQuotaReturn && activePlan ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 text-xs text-amber-950">
                   Ya usaste las {activePlan.availability?.cancellationsLimit ?? 5} cancelaciones con
-                  devolución de cupo de este abono. Todavía podés pedir un{' '}
-                  <span className="font-semibold">cambio de horario</span> o contactar al estudio.
+                  devolución de cupo de este abono. Contactá al estudio si necesitás mover un turno.
                 </div>
               ) : null}
               {myReservations.map((reservation) => (
                 <article
                   key={reservation.id}
-                  className={`rounded-2xl border p-4 ${
-                    changingReservation?.id === reservation.id
-                      ? 'border-brand-300 bg-brand-50/50'
-                      : 'border-border bg-surface-muted/30'
-                  }`}
+                  className="rounded-2xl border border-border bg-surface-muted/30 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -592,32 +429,23 @@ export default function ClientReservationsPage() {
                   </div>
 
                   {reservation.status === 'confirmed' ? (
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <Button
-                        variant="secondary"
-                        className="w-full"
-                        onClick={() => startChange(reservation)}
-                      >
-                        Cambiar horario
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        className="w-full text-danger"
-                        onClick={() => handleCancel(reservation)}
-                        isLoading={cancellingReservationId === reservation.id}
-                        disabled={
-                          Boolean(cancellingReservationId) ||
-                          (reservation.consumesPlan !== false && !canCancelWithQuotaReturn)
-                        }
-                        title={
-                          reservation.consumesPlan !== false && !canCancelWithQuotaReturn
-                            ? 'Alcanzaste el máximo de cancelaciones con cupo de este abono'
-                            : undefined
-                        }
-                      >
-                        Cancelar
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      className="mt-4 w-full text-danger"
+                      onClick={() => handleCancel(reservation)}
+                      isLoading={cancellingReservationId === reservation.id}
+                      disabled={
+                        Boolean(cancellingReservationId) ||
+                        (reservation.consumesPlan !== false && !canCancelWithQuotaReturn)
+                      }
+                      title={
+                        reservation.consumesPlan !== false && !canCancelWithQuotaReturn
+                          ? 'Alcanzaste el máximo de cancelaciones con cupo de este abono'
+                          : undefined
+                      }
+                    >
+                      Cancelar
+                    </Button>
                   ) : null}
                   {reservation.status === 'pending' ? (
                     <div className="mt-4 space-y-3">
@@ -639,14 +467,14 @@ export default function ClientReservationsPage() {
                   ) : null}
                   {reservation.bookingType === 'recurring' ? (
                     <p className="mt-3 text-xs text-text-muted">
-                      Viene de tu horario fijo. El cambio aplica solo a esta fecha.
+                      Viene de tu horario fijo. Para moverla, contactá al estudio.
                     </p>
                   ) : null}
                 </article>
               ))}
             </div>
 
-            {!changingReservation && showBookingSection ? (
+            {showBookingSection ? (
               <Button
                 variant="secondary"
                 className="mt-4 w-full"
@@ -660,11 +488,9 @@ export default function ClientReservationsPage() {
           </section>
         ) : null}
 
-        <PendingChangesSection />
-
         {showBookingSection ? (
           <div ref={weekListRef}>
-            {!hasReservations && !changingReservation ? (
+            {!hasReservations ? (
               <section className="mb-4 rounded-2xl border border-dashed border-brand-200 bg-brand-50/40 p-4 text-center">
                 <p className="text-sm font-semibold text-text">
                   {canRequestWithoutPlan
@@ -686,10 +512,8 @@ export default function ClientReservationsPage() {
               grouped={grouped}
               reservedClassIds={reservedClassIds}
               reservedDates={reservedDates}
-              mode={calendarMode}
-              excludeClassId={changingReservation?.generatedClassId || null}
               canBook={canBook}
-              requestMode={canRequestWithoutPlan && !changingReservation}
+              requestMode={canRequestWithoutPlan}
               submittingClassId={submittingClassId}
               planHint={planHint}
               recoveryCredits={recoveryCredits}
@@ -714,10 +538,8 @@ export default function ClientReservationsPage() {
       <ConfirmBookingModal
         open={Boolean(pendingSlot)}
         classItem={pendingSlot}
-        mode={calendarMode}
-        requestMode={canRequestWithoutPlan && !changingReservation}
+        requestMode={canRequestWithoutPlan}
         isSubmitting={Boolean(submittingClassId)}
-        fromReservation={changingReservation}
         onClose={handleClosePendingSlot}
         onConfirm={handleConfirmPendingSlot}
       />

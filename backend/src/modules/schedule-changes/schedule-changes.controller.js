@@ -27,44 +27,6 @@ export async function getScheduleChange(req, res, next) {
   }
 }
 
-export async function getMyScheduleChanges(req, res, next) {
-  try {
-    const result = await scheduleChangesService.getMyScheduleChanges(
-      req.auth.sub,
-      req.validatedQuery
-    );
-    res.json({ success: true, data: result });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function createMyScheduleChange(req, res, next) {
-  try {
-    const request = await scheduleChangesService.createScheduleChangeRequest({
-      clientId: req.auth.sub,
-      reservationId: req.validatedBody.reservationId,
-      toGeneratedClassId: req.validatedBody.toGeneratedClassId,
-      reason: req.validatedBody.reason,
-    });
-    res.status(201).json({ success: true, data: { request } });
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function cancelMyScheduleChange(req, res, next) {
-  try {
-    const request = await scheduleChangesService.cancelScheduleChangeRequest(
-      req.params.id,
-      req.auth.sub
-    );
-    res.json({ success: true, data: { request } });
-  } catch (error) {
-    next(error);
-  }
-}
-
 export async function approveScheduleChange(req, res, next) {
   try {
     const result = await scheduleChangesService.approveScheduleChangeRequest(

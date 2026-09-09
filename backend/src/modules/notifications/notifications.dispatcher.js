@@ -270,7 +270,7 @@ export async function notifyScheduleChangeRequested({ request: _request, clientN
 export async function notifyScheduleChangeApproved({ request, clientId }) {
   await dispatchToClient(clientId, {
     eventType: NOTIFICATION_EVENTS.SCHEDULE_CHANGE_APPROVED,
-    title: 'Cambio de horario aprobado',
+    title: 'Turno reasignado',
     body: `Tu nueva clase es el ${formatClassDate(request.toClass.classDate)} a las ${request.toClass.startTime}`,
     payload: { url: `${env.appUrl}/cliente/reservas` },
   });

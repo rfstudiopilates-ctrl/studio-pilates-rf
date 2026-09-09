@@ -11,12 +11,11 @@ import {
 } from '../../lib/dates';
 import { DAY_OF_WEEK_LABELS } from '../../constants/schedules';
 
-function isSlotAvailable(classItem, { reservedClassIds, excludeClassId, mode }) {
+function isSlotAvailable(classItem, { reservedClassIds }) {
   if (!classItem) return false;
-  if (excludeClassId && classItem.id === excludeClassId) return false;
   if (isClassPast(classItem.classDate, classItem.startTime)) return false;
   if (classItem.isFull || Number(classItem.spotsAvailable || 0) <= 0) return false;
-  if (mode === 'book' && reservedClassIds.has(classItem.id)) return false;
+  if (reservedClassIds.has(classItem.id)) return false;
   return true;
 }
 
@@ -71,8 +70,6 @@ export default function ClientWeekAvailability({
   grouped = {},
   reservedClassIds = new Set(),
   reservedDates = new Map(),
-  mode = 'book',
-  excludeClassId = null,
   canBook = false,
   requestMode = false,
   submittingClassId = null,
@@ -95,7 +92,7 @@ export default function ClientWeekAvailability({
       const date = addDaysToDate(weekStart, index);
       const dayOfWeek = getIsoWeekday(date);
       const classes = (grouped[date] || []).filter((item) =>
-        isSlotAvailable(item, { reservedClassIds, excludeClassId, mode })
+        isSlotAvailable(item, { reservedClassIds })
       );
       const reservation = reservedDates.get(date) || null;
 
@@ -107,14 +104,13 @@ export default function ClientWeekAvailability({
         reservation,
       };
     }).filter((day) => {
-      // En modo reserva no mostramos días que ya tienen turno del cliente.
-      if (mode === 'book' && day.reservation) {
+      if (day.reservation) {
         return false;
       }
 
       return day.classes.length > 0;
     });
-  }, [weekStart, grouped, reservedClassIds, reservedDates, excludeClassId, mode]);
+  }, [weekStart, grouped, reservedClassIds, reservedDates]);
 
   const showEmpty = !isLoading && !isRefreshing && days.length === 0;
 
@@ -128,9 +124,7 @@ export default function ClientWeekAvailability({
             </p>
             <h2 className="mt-1 text-lg font-semibold capitalize text-text">{monthLabel}</h2>
             <p className="mt-0.5 text-sm text-text-muted">{weekLabel}</p>
-            <p className="mt-2 text-sm text-text-muted">
-              {mode === 'change' ? 'Elegí el nuevo horario disponible' : planHint}
-            </p>
+            <p className="mt-2 text-sm text-text-muted">{planHint}</p>
           </div>
 
           <div
@@ -169,7 +163,7 @@ export default function ClientWeekAvailability({
           </div>
         </div>
 
-        {mode === 'book' && recoveryCredits.length > 0 ? (
+        {recoveryCredits.length > 0 ? (
           <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50/60 p-3">
             <p className="text-xs font-medium text-text">Crédito de recuperación</p>
             <select
@@ -187,13 +181,13 @@ export default function ClientWeekAvailability({
           </div>
         ) : null}
 
-        {!canBook && mode === 'book' ? (
+        {!canBook ? (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-danger">
             No podés reservar ahora: necesitás un plan con cupos o un crédito de recuperación.
           </div>
         ) : null}
 
-        {requestMode && canBook && mode === 'book' ? (
+        {requestMode && canBook ? (
           <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2.5 text-sm text-text">
             Este pedido queda pendiente hasta que el estudio confirme la seña. El cupo se
             reserva mientras se gestiona.
@@ -264,8 +258,7 @@ export default function ClientWeekAvailability({
                   <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
                     {day.classes.map((classItem) => {
                       const isMine = reservedClassIds.has(classItem.id);
-                      const blocked =
-                        (mode === 'book' && !canBook) || (mode === 'change' && isMine);
+                      const blocked = !canBook;
 
                       return (
                         <SlotChip

@@ -252,7 +252,7 @@ export default function AdminDashboardPage() {
       <PushNotificationBanner
         className="mb-5"
         title="Activá avisos en este dispositivo"
-        description="Te llegan al celular cuando un cliente reserva, cancela o pide un cambio de horario."
+        description="Te llegan al celular cuando un cliente reserva o cancela una clase."
       />
 
       <section className="rounded-2xl border border-border bg-white p-4 shadow-[0_8px_30px_rgba(26,26,26,0.04)] sm:p-5">

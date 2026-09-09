@@ -22,8 +22,8 @@ import { getErrorMessage } from '../../lib/formErrors';
 
 const DEFAULT_FILTERS = {
   search: '',
-  status: 'pending',
-  origin: '',
+  status: '',
+  origin: 'admin',
   sortBy: 'created_at',
   sortOrder: 'desc',
   from: '',
@@ -165,12 +165,15 @@ export default function ScheduleChangesPanel() {
               <NavIcon name="swap" className="h-5 w-5 text-text" />
             </div>
             <div>
-              <p className="text-base font-semibold text-text">Cambios de horario</p>
+              <p className="text-base font-semibold text-text">Historial de cambios de horario</p>
               <p className="text-sm text-text-muted">
+                Reasignaciones hechas por el estudio. Los clientes ya no pueden solicitar cambios.
                 {isLoading
-                  ? 'Cargando...'
-                  : `${pagination?.total ?? 0} en esta vista · ${pendingCount} pendiente${
-                      pendingCount === 1 ? '' : 's'
+                  ? ' Cargando...'
+                  : ` ${pagination?.total ?? 0} en esta vista${
+                      pendingCount > 0
+                        ? ` · ${pendingCount} solicitud${pendingCount === 1 ? '' : 'es'} antigua${pendingCount === 1 ? '' : 's'} pendiente${pendingCount === 1 ? '' : 's'}`
+                        : ''
                     }`}
                 {isFetching && !isLoading ? ' · Actualizando' : ''}
               </p>
