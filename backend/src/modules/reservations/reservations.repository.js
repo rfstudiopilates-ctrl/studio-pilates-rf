@@ -1032,7 +1032,7 @@ export async function countOccupyingRecurringByTemplate(scheduleTemplateId, conn
      INNER JOIN recurring_reservations rr
        ON rr.day_of_week = st.day_of_week
       AND TIME_FORMAT(rr.start_time, '%H:%i') = TIME_FORMAT(st.start_time, '%H:%i')
-      AND rr.status = 'active'
+      AND rr.status IN ('active', 'paused')
      INNER JOIN clients c
        ON c.id = rr.client_id
       AND c.deleted_at IS NULL

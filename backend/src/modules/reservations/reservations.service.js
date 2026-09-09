@@ -36,6 +36,7 @@ import {
   FIXED_SCHEDULE_REBALANCE_REASON,
   PLAN_OUTSIDE_VIGENCY_REASON,
   PLAN_CANCELLED_REASON,
+  PLAN_EXPIRED_RESERVATION_REASON,
   PLAN_EXPIRED_GRACE_RELEASE_REASON,
   CLIENT_DEACTIVATED_REASON,
   CLIENT_DEACTIVATED_RECURRING_CLEANUP_REASON,
@@ -1563,6 +1564,119 @@ export async function completePastActiveReservations({ clientId = null } = {}) {
 }
 
 /**
+ * true si el cliente tiene un plan vencido dentro de los 7 días de gracia
+ * para retener horarios fijos (sin plan activo utilizable).
+ */
+async function isClientInFixedScheduleGrace(clientId, connection = null) {
+  const today = getTodayInArgentina();
+  const activePlan = await plansRepository.findActiveClientPlan(clientId, connection);
+
+  if (activePlan) {
+    const activeEnd = toDateString(activePlan.endDate);
+    if (activeEnd && activeEnd >= today) {
+      return false;
+    }
+  }
+
+  const renewable = await plansRepository.findRenewableClientPlan(clientId, connection);
+  if (!renewable || renewable.status === 'cancelled') {
+    return false;
+  }
+
+  if (renewable.status === 'active') {
+    const end = toDateString(renewable.endDate);
+    if (end && end >= today) {
+      return false;
+    }
+  }
+
+  return getFixedScheduleGraceInfo(renewable.endDate, today).inGrace;
+}
+
+/**
+ * Tras vencer un abono: extiende los fijos hasta el fin de la gracia y libera
+ * reservas futuras fuera de vigencia (no pueden asistir), pero mantiene el cupo
+ * del horario fijo para que otro cliente no lo tome.
+ */
+export async function syncFixedScheduleGraceRetention() {
+  const today = getTodayInArgentina();
+  const expiredInGrace = await plansRepository.listExpiredClientPlansInGrace();
+
+  let clientsSynced = 0;
+  let extendedRecurring = 0;
+  let cancelledReservations = 0;
+
+  for (const clientPlan of expiredInGrace) {
+    const inGrace = await isClientInFixedScheduleGrace(clientPlan.clientId);
+    if (!inGrace) {
+      continue;
+    }
+
+    const grace = getFixedScheduleGraceInfo(clientPlan.endDate, today);
+    const graceEndsOn = grace.graceEndsOn;
+    const planEnd = toDateString(clientPlan.endDate);
+
+    if (!graceEndsOn || !planEnd) {
+      continue;
+    }
+
+    const recurrings = await reservationsRepository.listRecurringByClient(clientPlan.clientId);
+    let clientTouched = false;
+
+    for (const recurring of recurrings) {
+      if (recurring.status !== 'active' && recurring.status !== 'paused') {
+        continue;
+      }
+
+      const currentEnd = toDateString(recurring.endDate) || planEnd;
+      const targetEnd = currentEnd > graceEndsOn ? currentEnd : graceEndsOn;
+
+      if (targetEnd !== currentEnd) {
+        await reservationsRepository.updateRecurringReservation(recurring.id, {
+          endDate: targetEnd,
+        });
+        extendedRecurring += 1;
+        clientTouched = true;
+      }
+    }
+
+    const futureReservations =
+      await reservationsRepository.listActiveFutureReservationsByClient(
+        clientPlan.clientId,
+        addDaysToDate(planEnd, 1)
+      );
+
+    for (const reservation of futureReservations) {
+      const classDate = toDateString(reservation.classDate);
+      if (!classDate || classDate <= planEnd) {
+        continue;
+      }
+
+      try {
+        await cancelReservation({
+          reservationId: reservation.id,
+          cancelledBy: 'admin',
+          cancellationReason: PLAN_EXPIRED_RESERVATION_REASON,
+          deferRecurringProcess: true,
+          forceReturnQuota: false,
+          silent: true,
+        });
+        cancelledReservations += 1;
+        clientTouched = true;
+      } catch {
+        // Continuar.
+      }
+    }
+
+    if (clientTouched) {
+      clientsSynced += 1;
+    }
+  }
+
+  return { clientsSynced, extendedRecurring, cancelledReservations };
+}
+
+/**
  * Cierra horarios fijos y libera reservas futuras del cliente.
  */
 export async function releaseFixedSchedulesForClient({
@@ -2379,6 +2493,7 @@ export async function listMyRecurring(clientId) {
 export async function processRecurringReservations(options = {}) {
   await reservationsRepository.expireRecoveryCredits();
   await plansRepository.expireClientPlans();
+  await syncFixedScheduleGraceRetention();
   await releaseExpiredPlansPastGrace();
 
   // Repara cambios de horario ya aprobados sin marcador en la clase origen
@@ -2423,20 +2538,11 @@ export async function processRecurringReservations(options = {}) {
 
   for (const recurring of recurringList) {
     const recurringEnd = recurring.endDate ? toDateString(recurring.endDate) : null;
-    const linkedPlan = recurring.clientPlanId
-      ? await plansRepository.findClientPlanById(recurring.clientPlanId)
-      : null;
-    const linkedPlanEnd = linkedPlan?.endDate ? toDateString(linkedPlan.endDate) : null;
     const activePlan = await plansRepository.findActiveClientPlan(recurring.clientId);
 
     // Retener fijos en gracia tras vencimiento; liberar solo vía releaseExpiredPlansPastGrace.
     if (recurringEnd && recurringEnd < today) {
-      const graceEnd =
-        linkedPlanEnd ||
-        (await plansRepository.findRenewableClientPlan(recurring.clientId))?.endDate;
-      const graceInfo = graceEnd ? getFixedScheduleGraceInfo(graceEnd, today) : null;
-
-      if (graceInfo?.inGrace) {
+      if (await isClientInFixedScheduleGrace(recurring.clientId)) {
         skipped += 1;
         continue;
       }
@@ -2449,6 +2555,11 @@ export async function processRecurringReservations(options = {}) {
 
     // Sin plan activo no materializar (puede estar en gracia reteniendo el cupo).
     if (!activePlan) {
+      if (await isClientInFixedScheduleGrace(recurring.clientId)) {
+        skipped += 1;
+        continue;
+      }
+
       skipped += 1;
       continue;
     }

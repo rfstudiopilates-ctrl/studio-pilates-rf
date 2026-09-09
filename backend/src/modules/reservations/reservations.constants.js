@@ -38,6 +38,9 @@ export const PLAN_OUTSIDE_VIGENCY_REASON = 'Fuera de vigencia del plan activo';
 
 export const PLAN_CANCELLED_REASON = 'Plan cancelado';
 
+/** Reserva futura cancelada al vencer el plan (el fijo se retiene en gracia). */
+export const PLAN_EXPIRED_RESERVATION_REASON = 'Plan vencido: reserva liberada';
+
 export const PLAN_EXPIRED_GRACE_RELEASE_REASON =
   `Plan vencido: horarios fijos liberados tras ${FIXED_SCHEDULE_GRACE_DAYS} días de gracia`;
 

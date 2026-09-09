@@ -403,6 +403,26 @@ export async function findRenewableClientPlan(clientId, connection = pool) {
   return mapClientPlanRow(rows[0]);
 }
 
+/** Planes vencidos (expired) aún dentro de la gracia de horarios fijos. */
+export async function listExpiredClientPlansInGrace(connection = pool) {
+  const db = connection || pool;
+  const today = getTodayInArgentina();
+  const graceFloor = addDaysToDate(today, -FIXED_SCHEDULE_GRACE_DAYS);
+
+  const [rows] = await db.query(
+    `SELECT cp.*, p.name AS plan_name
+     FROM client_plans cp
+     INNER JOIN plans p ON p.id = cp.plan_id
+     WHERE cp.status = 'expired'
+       AND cp.end_date >= ?
+       AND cp.end_date < ?
+     ORDER BY cp.end_date ASC, cp.id ASC`,
+    [graceFloor, today]
+  );
+
+  return rows.map(mapClientPlanRow);
+}
+
 /** Planes expired cuya gracia de fijos ya terminó (día 8+). */
 export async function listExpiredClientPlansPastGrace(connection = pool) {
   const db = connection || pool;

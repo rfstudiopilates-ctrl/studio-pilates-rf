@@ -324,7 +324,8 @@ export async function getClientPlans(clientId, query) {
   }
 
   await plansRepository.expireClientPlans();
-  // Libera fijos de gracia vencida al consultar (además del cron).
+  // Retiene fijos en gracia y libera los vencidos al consultar (además del cron).
+  await reservationsService.syncFixedScheduleGraceRetention();
   await reservationsService.releaseExpiredPlansPastGrace();
 
   const activePlan = await plansRepository.findActiveClientPlan(clientId);
