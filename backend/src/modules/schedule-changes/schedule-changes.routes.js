@@ -12,6 +12,22 @@ import { authenticate, authorize } from '../../middleware/authenticate.js';
 
 const router = Router();
 
+/** PWA cacheada: bloquear solicitudes de cambio de horario del cliente. */
+function blockClientScheduleChange(req, res) {
+  res.status(403).json({
+    success: false,
+    error: {
+      code: 'SCHEDULE_CHANGE_CLIENT_DISABLED',
+      message:
+        'Los cambios de horario los gestiona el estudio. Contactá al estudio si necesitás mover un turno.',
+    },
+  });
+}
+
+router.get('/me', authenticate, authorize('client'), blockClientScheduleChange);
+router.post('/me', authenticate, authorize('client'), blockClientScheduleChange);
+router.patch('/me/:id/cancel', authenticate, authorize('client'), blockClientScheduleChange);
+
 router.use(authenticate, authorize('admin'));
 
 router.get('/pending/count', scheduleChangesController.getPendingCount);
