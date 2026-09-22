@@ -1,3 +1,7 @@
+/** Ventana compartida para reservas activas/próximas (~8 semanas de generación de clases). */
+export const UPCOMING_RESERVATIONS_FROM_DAYS = 7;
+export const UPCOMING_RESERVATIONS_TO_DAYS = 60;
+
 export const RESERVATION_STATUS_LABELS = {
   pending: 'Pendiente',
   confirmed: 'Confirmada',

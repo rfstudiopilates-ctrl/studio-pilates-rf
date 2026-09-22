@@ -14,15 +14,11 @@ import {
   BOOKING_TYPE_LABELS,
   RESERVATION_STATUS_LABELS,
   RESERVATION_STATUS_STYLES,
+  UPCOMING_RESERVATIONS_TO_DAYS,
 } from '../../constants/reservations';
 import { formatCurrency } from '../../lib/currency';
-import {
-  addDaysToDate,
-  formatDateDisplay,
-  getTodayInArgentina,
-  isClassEnded,
-  normalizeDateInput,
-} from '../../lib/dates';
+import { addDaysToDate, formatDateDisplay, getTodayInArgentina } from '../../lib/dates';
+import { filterActiveUpcomingReservations } from '../../lib/reservations';
 
 function getPlanBadgeClass(status) {
   if (status === 'active') return 'border-emerald-100 bg-emerald-50 text-emerald-800';
@@ -323,18 +319,12 @@ export default function ClientDashboardPage() {
 
   const { data: reservationsData, isLoading: reservationsLoading } = useMyReservations({
     from: today,
-    to: addDaysToDate(today, 21),
+    to: addDaysToDate(today, UPCOMING_RESERVATIONS_TO_DAYS),
     limit: 20,
   });
 
   const upcomingReservations = useMemo(() => {
-    const items = (reservationsData?.items || [])
-      .filter((item) => ['pending', 'confirmed'].includes(item.status))
-      .filter((item) => {
-        const dateKey = normalizeDateInput(item.classDate);
-        if (!dateKey) return false;
-        return !isClassEnded(dateKey, item.endTime);
-      })
+    const items = filterActiveUpcomingReservations(reservationsData?.items)
       .sort((a, b) => {
         const dateCmp = String(a.classDate).localeCompare(String(b.classDate));
         if (dateCmp !== 0) return dateCmp;

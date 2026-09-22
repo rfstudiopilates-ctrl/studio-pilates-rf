@@ -10,6 +10,8 @@ import {
   BOOKING_TYPE_LABELS,
   RECURRING_STATUS_LABELS,
   RESERVATION_STATUS_LABELS,
+  UPCOMING_RESERVATIONS_FROM_DAYS,
+  UPCOMING_RESERVATIONS_TO_DAYS,
 } from '../../constants/reservations';
 import { DAY_OF_WEEK_LABELS } from '../../constants/schedules';
 import { useClassesAvailability } from '../../hooks/useClasses';
@@ -26,11 +28,11 @@ import {
   formatDateDisplay,
   getTodayInArgentina,
   getWeekStartDate,
-  isClassEnded,
   isClassPast,
   normalizeDateInput,
 } from '../../lib/dates';
 import { getErrorMessage } from '../../lib/formErrors';
+import { filterActiveUpcomingReservations } from '../../lib/reservations';
 
 function buildGroupedAvailability(items = [], { from, to } = {}) {
   const grouped = {};
@@ -145,9 +147,9 @@ export default function ClientReservationsPage() {
   });
 
   const { data: reservationsData, isLoading: reservationsLoading } = useMyReservations({
-    from: addDaysToDate(today, -7),
-    to: addDaysToDate(today, 21),
-    limit: 50,
+    from: addDaysToDate(today, -UPCOMING_RESERVATIONS_FROM_DAYS),
+    to: addDaysToDate(today, UPCOMING_RESERVATIONS_TO_DAYS),
+    limit: 80,
   });
 
   const { data: recoveryCredits = [] } = useMyRecoveryCredits();
@@ -157,13 +159,7 @@ export default function ClientReservationsPage() {
   const cancelReservation = useCancelMyReservation();
 
   const myReservations = useMemo(
-    () =>
-      (reservationsData?.items || []).filter((item) => {
-        if (!['pending', 'confirmed'].includes(item.status)) return false;
-        const dateKey = normalizeDateInput(item.classDate);
-        if (!dateKey) return false;
-        return !isClassEnded(dateKey, item.endTime);
-      }),
+    () => filterActiveUpcomingReservations(reservationsData?.items),
     [reservationsData]
   );
 

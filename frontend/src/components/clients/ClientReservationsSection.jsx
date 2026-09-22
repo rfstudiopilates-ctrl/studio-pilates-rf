@@ -10,6 +10,8 @@ import {
   RECURRING_STATUS_STYLES,
   RESERVATION_STATUS_LABELS,
   RESERVATION_STATUS_STYLES,
+  UPCOMING_RESERVATIONS_FROM_DAYS,
+  UPCOMING_RESERVATIONS_TO_DAYS,
 } from '../../constants/reservations';
 import {
   getFixedScheduleSlotLimit,
@@ -27,7 +29,8 @@ import {
   useUpdateRecurring,
 } from '../../hooks/useReservations';
 import { useWeeklySchedule } from '../../hooks/useSchedules';
-import { addDaysToDate, formatDateDisplay, getTodayInArgentina, normalizeDateInput } from '../../lib/dates';
+import { addDaysToDate, formatDateDisplay, getTodayInArgentina } from '../../lib/dates';
+import { filterActiveUpcomingReservations } from '../../lib/reservations';
 import { getErrorMessage } from '../../lib/formErrors';
 import { reservationsApi } from '../../services/reservationsService';
 
@@ -46,8 +49,8 @@ function StatusBadge({ status, labels, styles }) {
 export function ClientReservationsSection({ clientId }) {
   const today = getTodayInArgentina();
   const { data: reservationsData, isLoading } = useClientReservations(clientId, {
-    from: addDaysToDate(today, -14),
-    to: addDaysToDate(today, 90),
+    from: addDaysToDate(today, -UPCOMING_RESERVATIONS_FROM_DAYS),
+    to: addDaysToDate(today, UPCOMING_RESERVATIONS_TO_DAYS),
     limit: 80,
   });
   const { data: recurring = [], isLoading: isLoadingRecurring } = useClientRecurring(clientId);
@@ -76,13 +79,8 @@ export function ClientReservationsSection({ clientId }) {
   const slots = scheduleData?.slots || [];
 
   const activeReservations = useMemo(
-    () =>
-      reservations.filter((item) => {
-        if (!['pending', 'confirmed'].includes(item.status)) return false;
-        const dateKey = normalizeDateInput(item.classDate);
-        return dateKey && dateKey >= today;
-      }),
-    [reservations, today]
+    () => filterActiveUpcomingReservations(reservations),
+    [reservations]
   );
 
   const occupyingRecurring = useMemo(

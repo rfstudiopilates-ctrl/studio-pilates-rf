@@ -3,7 +3,7 @@ const INSTALL_DISMISSED_KEY = 'sprf-pwa-install-dismissed';
 const IOS_GUIDE_DISMISSED_KEY = 'sprf-pwa-ios-guide-dismissed';
 const APP_INSTALLED_KEY = 'sprf-pwa-installed';
 const APP_INSTALLED_COOKIE = 'sprf_pwa_installed';
-const STYLE_RECOVERY_KEY = 'sprf-style-recovery-v5';
+const STYLE_RECOVERY_KEY = 'sprf-style-recovery-v6';
 
 let deferredInstallPrompt = null;
 let waitingWorker = null;
